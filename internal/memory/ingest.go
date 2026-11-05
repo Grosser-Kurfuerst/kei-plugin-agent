@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -20,7 +21,9 @@ type ingestBatch struct {
 }
 
 // Enqueue 把记录放入写队列，永不阻塞。队列满时丢弃并计入 Dropped；已停止时返回 false。
+// Mentions 会被复制，调用方入队后可复用原切片。
 func (s *Service) Enqueue(r Record) bool {
+	r.Mentions = slices.Clone(r.Mentions)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.stopped {
@@ -91,11 +94,11 @@ func (s *Service) prepare(records []Record) ingestBatch {
 			MsgID:       r.MsgID,
 			EventID:     r.EventID,
 			SenderID:    r.Sender.ID,
-			SenderName:  r.Sender.Name,
+			SenderName:  cleanText(r.Sender.Name),
 			SenderIsBot: r.Sender.IsBot,
 			IsSelf:      r.Self,
 			Persona:     r.Persona,
-			Text:        r.Text,
+			Text:        cleanText(r.Text),
 			ReplyTo:     r.ReplyTo,
 			Mentions:    mentions,
 			SentAt:      at,
@@ -108,8 +111,8 @@ func (s *Service) prepare(records []Record) ingestBatch {
 			c = newConversation(key, r.Conv)
 			convs[key] = c
 		}
-		if r.Conv.Name != "" {
-			c.Name = r.Conv.Name
+		if name := cleanText(r.Conv.Name); name != "" {
+			c.Name = name
 		}
 		if c.LastMsgAt == nil || at.After(*c.LastMsgAt) {
 			c.LastMsgAt = &at
@@ -120,6 +123,11 @@ func (s *Service) prepare(records []Record) ingestBatch {
 	}
 	slices.SortFunc(b.convs, func(x, y store.Conversation) int { return cmp.Compare(x.ConvKey, y.ConvKey) })
 	return b
+}
+
+// cleanText 替换非法 UTF-8、去掉 \x00：PostgreSQL 的 text 不接受它们，一条坏记录会让整批写入失败。
+func cleanText(s string) string {
+	return strings.ReplaceAll(strings.ToValidUTF8(s, "\uFFFD"), "\x00", "")
 }
 
 // newConversation 只填写构成 conv_key 的字段：群会话由多个机器人共享，不记 BotID。

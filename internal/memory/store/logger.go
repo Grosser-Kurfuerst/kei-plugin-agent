@@ -40,10 +40,11 @@ func (l gormLogger) Error(ctx context.Context, msg string, data ...any) {
 	l.log.WarnContext(ctx, "persona memory: gorm 错误", "operation", "memory_sql", "err", fmt.Sprintf(msg, data...))
 }
 
-// Trace 实现 logger.Interface：出错（ErrRecordNotFound 除外）或耗时超过阈值时记 Warn。
+// Trace 实现 logger.Interface：出错或耗时超过阈值时记 Warn。
+// ErrRecordNotFound 与 context.Canceled（停止时打断在途语句）不算出错。
 func (l gormLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
 	elapsed := time.Since(begin)
-	failed := err != nil && !errors.Is(err, gorm.ErrRecordNotFound)
+	failed := err != nil && !errors.Is(err, gorm.ErrRecordNotFound) && !errors.Is(err, context.Canceled)
 	if !failed && elapsed <= slowSQLThreshold {
 		return
 	}

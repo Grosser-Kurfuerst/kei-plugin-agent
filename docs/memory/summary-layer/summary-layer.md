@@ -118,7 +118,7 @@ worker 领取任务（FOR UPDATE SKIP LOCKED）
 
 | 方法 | 作用 | 引入阶段 |
 | --- | --- | --- |
-| `New(cfg Config, log *slog.Logger, httpClient *http.Client) *Service` | 只保存依赖，不连库、不联网 | S1 |
+| `New(cfg Config, log *slog.Logger) *Service` | 只保存依赖，不连库、不联网；S4 追加参数 `httpClient *http.Client`（LLM 客户端用） | S1 |
 | `Start(ctx)` | 立即返回；连库、迁移与后台协程在插件级 ctx 派生的协程中进行 | S1 |
 | `Stop(ctx)` | 关闭准入 → flush 队列 → 停止后台协程 → 关闭连接池；有界、幂等 | S1 |
 | `Enqueue(r Record) bool` | 非阻塞入队；队列满或已停止时返回 false | S1 |
@@ -293,6 +293,7 @@ type Stats struct {
 - `conv_key` 格式见 [`overview.md`](../overview.md) §15.5.1：`group:<platform>:<channel_id>`、`private:<platform>:<bot_id>:<user_id>`。`group` 必须有 `Platform` 与 `ChannelID`；`private` 必须有 `Platform`、`BotID` 与 `PeerUserID`；不满足的丢弃并计入 `Rejected`。群会话由多个机器人共享，`mem_conversation` 的群行不记 `bot_id`。
 - 去重键：`MsgID` 非空时为 `m:<MsgID>`，否则 `e:<EventID>`；两者都空时丢弃并计入 `Rejected`。同一群内多个机器人收到同一条平台消息时只落一条。
 - `At` 晚于写入时刻 5 分钟以上或为零值时改用写入时刻。
+- `Text`、发送者名、会话名中的非法 UTF-8 替换为 `U+FFFD`、去掉 `\x00`（PostgreSQL 的 text 不接受），避免一条记录拖垮整批；`Mentions` 复制一份，调用方入队后可复用原切片。
 
 *模型*（`TableName()` 返回 `mem_*`；字符串列 `not null;default:''`，整数与布尔列 `not null`，下面省略）
 
@@ -371,7 +372,7 @@ type ConvDay struct {
   ```
 
 - `store.NewLogger` 实现 `gorm.io/gorm/logger.Interface`：`Trace` 只在出错（`ErrRecordNotFound` 除外）或耗时 > 1s 时记 `Warn`，字段 `operation=memory_sql`、`duration_ms`、`rows`、`err`；**不输出 SQL 文本与参数**。
-- `Stop`（幂等）：关闭准入并取消后台协程的 ctx → 写循环在 `flushTimeout` 内非阻塞排空队列并按批写入（ctx 为去掉取消信号的插件级 ctx 加 `flushTimeout`；不再重试，超时放弃剩余并记 `Warn`）→ 关闭连接池。连库或迁移阶段的协程随 ctx 取消直接退出。
+- `Stop`（幂等）：数据库从未就绪而队列中仍有记录时，记 `Warn`：`operation=memory_stop dropped=<n>`。关闭准入并取消后台协程的 ctx → 写循环在 `flushTimeout` 内非阻塞排空队列并按批写入（ctx 为去掉取消信号的插件级 ctx 加 `flushTimeout`；不再重试，超时放弃剩余并记 `Warn`）→ 关闭连接池。连库或迁移阶段的协程随 ctx 取消直接退出。
 
 *常量*：`ingestWriteTimeout = 5s`，`flushTimeout = 2s`，`migrateTimeout = 30s`。
 
@@ -441,7 +442,7 @@ type ConvDay struct {
 
 *生命周期*
 
-- `setup`：DSN 非空时 `p.mem = memory.New(cfg, p.log, pc.HTTPClient)`。未启用时保持 nil **接口值**，不能赋 nil 指针。
+- `setup`：DSN 非空时 `p.mem = memory.New(cfg, p.log)`（S4 起改为 `memory.New(cfg, p.log, pc.HTTPClient)`）。未启用时保持 nil **接口值**，不能赋 nil 指针。
 - `Start`：保存插件级 ctx 后调用 `p.mem.Start(p.ctx)`。
 - `Stop`：在 [`../../architecture.md`](../../architecture.md) §3.1 第 1 步（置 `closing`、等 `writerDone`）之后、第 2 步 `p.cancel()` 之前调用 `p.mem.Stop(ctx)`。必须在 `p.cancel()` 之前，因为 flush 需要尚未取消的插件级 ctx。之后 `Enqueue` 返回 false，仍在收尾的生成协程按「无记忆」继续。
 
@@ -629,7 +630,7 @@ type Handler func(ctx context.Context, job store.Job) (store.JobResult, error)
 | `internal/memory/summary/schema.go` | 输出结构体、校验与规范化、ID 回填、敏感信息替换 |
 | `internal/memory/summary/pipeline.go` | `daily_summary` Handler；合并、兜底与事务写入 |
 | `internal/memory/cleanup.go` | 追加删除过期摘要 |
-| `internal/memory/memory.go` | `Config` 增加 `LLMBaseURL`、`LLMAPIKey`、`LLMModelSmall`、`LLMModelLarge`、`LLMTimeout`、`LLMJSONMode`；注册 Handler |
+| `internal/memory/memory.go` | `New` 增加参数 `httpClient *http.Client`（根包传 `pc.HTTPClient`）；`Config` 增加 `LLMBaseURL`、`LLMAPIKey`、`LLMModelSmall`、`LLMModelLarge`、`LLMTimeout`、`LLMJSONMode`；注册 Handler |
 | [`config.go`](../../../config.go) | `memory_llm_*` |
 
 编码顺序：纯逻辑（切片、预过滤、校验、确定性合并）→ LLM 客户端 → 提示词 → 流水线与写入 → 调度建任务。

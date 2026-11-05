@@ -154,6 +154,46 @@ func TestIngestDedupe(t *testing.T) {
 	if want := []string{"e:e1", "m:m1", "m:m3"}; !slices.Equal(keys, want) {
 		t.Fatalf("dedupe_key = %v, want %v", keys, want)
 	}
+	var day store.ConvDay
+	if err := db.First(&day, "conv_key = ?", "group:qq:g1").Error; err != nil {
+		t.Fatal(err)
+	}
+	if day.MsgCount != 3 {
+		t.Fatalf("重复消息不应累加 msg_count，实际 %d", day.MsgCount)
+	}
+}
+
+func TestIngestPrivateConvAndCleanText(t *testing.T) {
+	dsn := memtest.NewDB(t)
+	s := startService(t, testConfig(t, dsn), nil)
+	db := openDB(t, dsn)
+
+	mentions := []string{"u2"}
+	s.Enqueue(Record{
+		Conv:     Conv{Type: ConvTypePrivate, Platform: "qq", BotID: "b1", PeerUserID: "u1", ChannelID: "c1"},
+		MsgID:    "m1",
+		At:       time.Now().UTC(),
+		Sender:   Sender{ID: "u1", Name: "Al\x00ice"},
+		Text:     "a\x00b\xff",
+		Mentions: mentions,
+	})
+	mentions[0] = "changed" // 入队后修改原切片不影响写入
+	waitFor(t, func() bool { return s.Stats().Written == 1 }, "私聊写入")
+
+	var c store.Conversation
+	if err := db.First(&c, "conv_key = ?", "private:qq:b1:u1").Error; err != nil {
+		t.Fatal(err)
+	}
+	if c.Type != ConvTypePrivate || c.BotID != "b1" || c.PeerUserID != "u1" || c.ChannelID != "" {
+		t.Fatalf("conversation = %+v", c)
+	}
+	var m store.Message
+	if err := db.First(&m, "conv_key = ?", "private:qq:b1:u1").Error; err != nil {
+		t.Fatal(err)
+	}
+	if m.Text != "ab\uFFFD" || m.SenderName != "Alice" || !slices.Equal(m.Mentions, []string{"u2"}) {
+		t.Fatalf("message text=%q sender_name=%q mentions=%v", m.Text, m.SenderName, m.Mentions)
+	}
 }
 
 func TestIngestConversationAndDay(t *testing.T) {
@@ -378,7 +418,8 @@ func TestConcurrentEnqueueAndStop(t *testing.T) {
 	dsn := memtest.NewDB(t)
 	cfg := testConfig(t, dsn)
 	cfg.QueueSize = 1000
-	s := startService(t, cfg, nil)
+	// 放宽 flush 上界：-race 下写完约 800 条，慢环境里默认 2s 可能不够。
+	s := startService(t, cfg, func(s *Service) { s.flushTimeout = 10 * time.Second })
 	db := openDB(t, dsn)
 
 	var accepted atomic.Int64

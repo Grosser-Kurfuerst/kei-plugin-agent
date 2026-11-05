@@ -114,18 +114,23 @@ func (s *Service) Stop(ctx context.Context) {
 		return
 	}
 	s.stopped = true
+	wasReady := s.state == StateReady
 	s.state = StateStopped
 	cancel, done := s.cancel, s.done
 	s.mu.Unlock()
 
-	if cancel == nil {
-		return // 未曾 Start
+	if cancel != nil {
+		cancel()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			s.log.Warn("persona memory: 等待后台协程退出超时", "operation", "memory_stop", "err", ctx.Err())
+			return
+		}
 	}
-	cancel()
-	select {
-	case <-done:
-	case <-ctx.Done():
-		s.log.Warn("persona memory: 等待后台协程退出超时", "operation", "memory_stop", "err", ctx.Err())
+	// 就绪过的写循环已在 flush 中处理队列；从未就绪时队列里的记录只能丢弃。
+	if n := len(s.queue); !wasReady && n > 0 {
+		s.log.Warn("persona memory: 数据库未就绪，丢弃队列中的记录", "operation", "memory_stop", "dropped", n)
 	}
 }
 
