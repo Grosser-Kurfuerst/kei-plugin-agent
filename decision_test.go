@@ -1545,6 +1545,11 @@ func TestMemoryIngestRejectKeepsBehavior(t *testing.T) {
 	if !env.waitSends(1, 2*time.Second) {
 		t.Fatal("Enqueue 返回 false 时仍应回复")
 	}
+	// 发送返回后才写回自身回复，轮询等待历史到齐
+	deadline := time.Now().Add(2 * time.Second)
+	for len(st.snapshotHistory(100)) < 2 && time.Now().Before(deadline) {
+		time.Sleep(2 * time.Millisecond)
+	}
 	if n := len(st.snapshotHistory(100)); n != 2 {
 		t.Fatalf("历史条数 = %d, want 2", n)
 	}

@@ -22,12 +22,10 @@ type memoryBackend interface {
 }
 
 // memoryRecordFromEvent 由入站事件构造记忆记录；text 为 renderMessage 的扁平文本。
+// 调用方保证 ev.Sender 非空（Handler 入口已拦截）。
 func (p *Plugin) memoryRecordFromEvent(ev *bot.Event, text string) memory.Record {
 	_, platform, botID, channelID := channelKey(ev)
-	var sender memory.Sender
-	if ev.Sender != nil {
-		sender = memory.Sender{ID: ev.Sender.ID, Name: ev.Sender.Name, IsBot: ev.Sender.IsBot}
-	}
+	sender := memory.Sender{ID: ev.Sender.ID, Name: ev.Sender.Name, IsBot: ev.Sender.IsBot}
 	conv := memory.Conv{Type: memory.ConvTypeGroup, Platform: platform, BotID: botID, ChannelID: channelID}
 	if ev.Channel != nil {
 		conv.Name = ev.Channel.Name
