@@ -7,12 +7,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/RandomLemon/kei/pkg/bot"
+
+	"github.com/RandomLemon/kei-plugin-persona/internal/memory"
 )
 
 // fastConfig 让随机参与与寻址回复确定性地触发。
@@ -1437,5 +1441,134 @@ func TestLRUKeepsHandlingSession(t *testing.T) {
 	env.p.mu.RUnlock()
 	if !kept {
 		t.Fatal("正在处理的会话被 LRU 淘汰")
+	}
+}
+
+// noIDAPI 发送成功但不返回消息 ID。
+type noIDAPI struct{ fakeBotAPI }
+
+func (a *noIDAPI) Send(ctx context.Context, target bot.Target, msg *bot.Message) (*bot.SendResult, error) {
+	_, err := a.fakeBotAPI.Send(ctx, target, msg)
+	return &bot.SendResult{}, err
+}
+
+// selfRecords 过滤出自身回复记录。
+func selfRecords(rs []memory.Record) []memory.Record {
+	var out []memory.Record
+	for _, r := range rs {
+		if r.Self {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func TestMemoryIngestInbound(t *testing.T) {
+	mem := &fakeMemory{}
+	env := newTestEnvMem(t, nil, func(c map[string]any) { c["random_enabled"] = false }, nil, nil, mem)
+
+	_ = env.deliver(groupEvent("g1", "u1", "张三", "加载中也要采集"))
+	cmd := groupEvent("g1", "u1", "张三", "hi")
+	cmd.Command = &bot.Command{Name: "echo"}
+	_ = env.deliver(cmd)
+	botEv := groupEvent("g1", "b1", "别的机器人", "我是机器人")
+	botEv.Sender.IsBot = true
+	_ = env.deliver(botEv)
+	env.waitLoaded(groupEvent("g1", "u1", "张三", "hi"))
+	env.command("off")
+	_ = env.deliver(groupEvent("g1", "u2", "李四", "关闭后也采集"))
+
+	rs := mem.snapshot()
+	var texts []string
+	for _, r := range rs {
+		texts = append(texts, r.Text)
+	}
+	if want := []string{"加载中也要采集", "我是机器人", "关闭后也采集"}; !slices.Equal(texts, want) {
+		t.Fatalf("入队文本 = %v, want %v（命令不入队）", texts, want)
+	}
+	if !rs[1].Sender.IsBot {
+		t.Error("机器人发送者应以 IsBot=true 入队")
+	}
+}
+
+func TestMemoryIngestPolicyReject(t *testing.T) {
+	mem := &fakeMemory{}
+	env := newTestEnvMem(t, nil, func(c map[string]any) { c["group_policy"] = "whitelist" }, nil, nil, mem)
+	_ = env.deliver(groupEvent("g1", "u1", "张三", "hi"))
+	_ = env.deliverPrivate(privateEvent("u1", "张三", "在吗")) // private_policy 默认 off
+	if rs := mem.snapshot(); len(rs) != 0 {
+		t.Fatalf("名单拒绝的会话不应入队, got %d", len(rs))
+	}
+}
+
+func TestMemoryIngestSelfReply(t *testing.T) {
+	mem := &fakeMemory{}
+	env := newTestEnvMem(t, nil, fastConfig, nil, nil, mem)
+	env.waitLoaded(atEvent("g1", "u1", "张三", "hi"))
+	env.command("persona", "tsundere")
+	_ = env.deliver(atEvent("g1", "u1", "张三", "在吗"))
+	if !env.waitSends(1, 2*time.Second) {
+		t.Fatal("应回复")
+	}
+	self := selfRecords(mem.waitRecords(2, time.Second))
+	if len(self) != 1 {
+		t.Fatalf("自身回复记录数 = %d, want 1", len(self))
+	}
+	r := self[0]
+	if r.Persona != "tsundere" || r.Sender.ID != "bot1" || r.Sender.Name != "小傲娇" || !r.Sender.IsBot {
+		t.Errorf("自身回复 Persona/Sender = %q/%+v", r.Persona, r.Sender)
+	}
+	if r.MsgID != "m-1" || r.Text != "打球可以啊" || r.Conv.Name != "" {
+		t.Errorf("自身回复 MsgID/Text/Conv.Name = %q/%q/%q", r.MsgID, r.Text, r.Conv.Name)
+	}
+}
+
+func TestMemoryIngestSendErrorSkipsSelf(t *testing.T) {
+	mem := &fakeMemory{}
+	env := newTestEnvMem(t, nil, fastConfig, nil, &failingAPI{}, mem)
+	env.waitLoaded(atEvent("g1", "u1", "张三", "hi"))
+	_ = env.deliver(atEvent("g1", "u1", "张三", "在吗"))
+	if !env.waitReason("send_error", 2*time.Second) {
+		t.Fatal("want send_error")
+	}
+	rs := mem.snapshot()
+	if len(rs) != 1 || len(selfRecords(rs)) != 0 {
+		t.Fatalf("发送失败只应有入站记录, got %+v", rs)
+	}
+}
+
+func TestMemoryIngestRejectKeepsBehavior(t *testing.T) {
+	mem := &fakeMemory{reject: true}
+	env := newTestEnvMem(t, nil, fastConfig, nil, nil, mem)
+	st := env.waitLoaded(atEvent("g1", "u1", "张三", "hi"))
+	_ = env.deliver(atEvent("g1", "u1", "张三", "在吗"))
+	if !env.waitSends(1, 2*time.Second) {
+		t.Fatal("Enqueue 返回 false 时仍应回复")
+	}
+	if n := len(st.snapshotHistory(100)); n != 2 {
+		t.Fatalf("历史条数 = %d, want 2", n)
+	}
+}
+
+func TestMemoryIngestLocalEventID(t *testing.T) {
+	mem := &fakeMemory{}
+	env := newTestEnvMem(t, nil, func(c map[string]any) {
+		fastConfig(c)
+		c["reply_dedupe"] = false
+	}, nil, &noIDAPI{}, mem)
+	env.waitLoaded(atEvent("g1", "u1", "张三", "hi"))
+	for i, text := range []string{"在吗", "还在吗"} {
+		_ = env.deliver(atEvent("g1", "u1", "张三", text))
+		if got := selfRecords(mem.waitRecords(2*(i+1), 2*time.Second)); len(got) != i+1 {
+			t.Fatalf("第 %d 次回复后自身记录数 = %d", i+1, len(got))
+		}
+	}
+	self := selfRecords(mem.snapshot())
+	prefix := "local:" + strconv.FormatInt(env.p.memEpoch, 10) + ":"
+	if self[0].EventID != prefix+"1" || self[1].EventID != prefix+"2" {
+		t.Fatalf("EventID = %q, %q, want %s1/%s2", self[0].EventID, self[1].EventID, prefix, prefix)
+	}
+	if self[0].MsgID != "" {
+		t.Errorf("MsgID = %q, want empty", self[0].MsgID)
 	}
 }
