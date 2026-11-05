@@ -137,6 +137,11 @@ go test -race ./internal/memory/...
 | 工具循环：后续轮次 `Complete` 失败 | `reason=llm_error`，不发送 |
 | 工具日志 | 工具参数 `args` 只在 `debug_prompts=true` 时出现；MCP 日志契约见 [`mcp.md`](mcp.md) §14.4-14.5，不再单独枚举日志测试 |
 | 工具配置校验 | `tools_max_rounds=0` → `必须 >= 1`；`tools_result_max_chars=0` → `必须 >= 1`；MCP 名称与启用规则补现有配置表，见 [`mcp.md`](mcp.md) §14.10.1 |
+| 记忆配置 | 默认 `memory_database_dsn=""`、`8`/`50`/`5s`/`2048`；DSN 为空时 `p.mem == nil`，非空时构造 `*memory.Service`；`memory_ingest_interval=0s` → `必须 > 0`；`memory_db_max_open_conns`/`memory_ingest_batch`/`memory_queue_size=0` → `必须 >= 1`；batch 大于队列 → `不能大于 memory_queue_size` |
+| 记忆记录构造（`memory_test.go`） | 群聊 `Conv`/`EventID`/`MsgID` 正确；`KeyMessageID` 为数字 `9001` 时 `ReplyTo="9001"`；`Mentions` 排除 `all`；`At` 为 UTC、零值回落 `p.now()`；私聊带 `PeerUserID`、`Name` 回落昵称；`Text` 截断到 2000 rune；自身回复 `Conv.Name` 为空、无消息 ID 时 `EventID=local:<启动时刻>:<序号>` 递增 |
+| 记忆入队（`fakeMemory`） | 懒加载中、`/agent off`、机器人发送者的消息照常入队；命令消息、名单拒绝的会话不入队；发送成功后自身回复入队（`Self=true`、人格名、`Sender.ID=botID`），发送失败不入队；`Enqueue` 返回 false 时回复与历史不变 |
+| 记忆生命周期 | `Start` 启动记忆；`Stop` 调用记忆 `Stop` 时插件级 ctx 尚未取消 |
+| `/agent memory status` | 未启用输出 `记忆：未启用`；启用时两行逐字一致；缺参或非法参数回用法文本，不建会话状态 |
 
 P8 删除 `rag_test.go`、内置注册表测试和旧 RAG 配置用例；通用循环、人格三态与日志参数测试继续保留，桩与配置的迁移见 [`mcp.md`](mcp.md) §14.10.1。
 
@@ -153,6 +158,7 @@ reason 词表（24 个）单测覆盖：`not_group`、`not_private`、`no_sender
 | `p.completer` | `*openaiClient` | 屏蔽真实 LLM（实现 completer 接口），返回固定文本、工具调用或错误 |
 | `p.tools` (`[]tool`，受目录锁保护) | Setup 时为空，Start/reload 发布完整 MCP 目录；MCP 未启用时为空 | 注入桩工具，断言调用参数与返回结果（[`mcp.md`](mcp.md) §13.2） |
 | `p.api` (`bot.BotAPI`) | 注入的 `PluginContext.Bot` | 捕获 `Send` 调用；命令测试用 `bot.NewNoopReply()` 断言 `PlainText()` |
+| `p.mem` (`memoryBackend`) | DSN 非空时为 `*memory.Service`，否则 nil | 根包测试注入 `fakeMemory`（`newTestEnvMem` 在 Setup 后、Start 前替换），不连数据库 |
 
 禁止为测试引入第三方 mock 库，全部用标准库 testing + 手写桩。
 

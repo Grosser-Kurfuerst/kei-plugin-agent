@@ -15,13 +15,14 @@
 - 提供 `/agent` 管理命令切换人格、开关、名单策略与查看状态。
 - 用 `bot.Storage` 持久化每会话的运行时覆盖（人格、开关）与插件级名单策略。
 - 通过一个外部 MCP 服务接入工具，由模型按需调用，管理员可刷新工具目录（[`mcp.md`](mcp.md) 第 14 章）。
+- 配置 `memory_database_dsn` 后，把放行的群聊 / 私聊消息与机器人自身回复异步写入 PostgreSQL，`/agent memory status` 查看写入计数（记忆子系统，[`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4）。
 
 **不做什么**
 
 - 不做平台协议：与具体 IM 平台无关，只依赖 `pkg/bot` 抽象。
-- 不做持久化数据库：只用 `bot.Storage` 键值存储，进程重启丢历史与计数器、保留覆盖与开关。
+- 会话状态不进数据库：只用 `bot.Storage` 键值存储，进程重启丢历史与计数器、保留覆盖与开关；PostgreSQL 只供可选的记忆子系统使用。
 - 不引入 LLM SDK：LLM 调用用纯 `net/http`。
-- 不引入第三方依赖：运行时仅标准库 + `github.com/RandomLemon/kei`。
+- 不引入其它第三方依赖：运行时仅标准库 + `github.com/RandomLemon/kei`，GORM 与 PostgreSQL 驱动只在 `internal/memory` 内使用（[`../AGENTS.md`](../AGENTS.md) §2.2）。
 - 不内置业务工具或直接连接知识库 API；所有工具经 MCP 提供，业务实现归外部服务。
 
 **与 kei 的关系**
@@ -97,6 +98,7 @@ reg.OnCommand("agent", p.handleCommand,
 
 5. 配置了 MCP 时构造客户端，不在 Setup 联网（[`mcp.md`](mcp.md) §14.7）。
 6. 构造 runtime：注入缝 `now`/`randFloat`/`completer`、全局信号量、`map[string]*channelState`、名单策略 `policyState`（初值取自配置键，见 [`participation.md`](participation.md) §7.8）。
+7. `memory_database_dsn` 非空时构造记忆服务 `p.mem = memory.New(...)`，不在 Setup 连库；未启用时 `p.mem` 保持 nil 接口值。
 
 **`Start(ctx)`**
 
@@ -104,16 +106,18 @@ reg.OnCommand("agent", p.handleCommand,
 2. 同步读取插件级名单策略覆盖（`loadPolicy`，`Storage.Get` 带 1s 超时，失败只 `Warn` 并保留配置默认值）。同步是为了避免「策略未就绪窗口」内误放行/误拒；这一步用**阶段 ctx**（受阶段 15s 预算约束）。
 3. 异步恢复 Storage 覆盖（每会话懒加载，见第 4 章）。
 4. 配置了 MCP 时，用阶段 ctx 与 `mcp_timeout` 共同限定首次初始化和完整目录加载；失败返回 error 阻止启动（[`mcp.md`](mcp.md) §14.7）。
-5. 启动单写协程 `writeLoop`（按提交顺序串行执行写穿透队列，见 §4.6）。
-6. 启动完成，等待事件。
+5. 记录本次启动时刻（自身回复无消息 ID 时的本地事件 ID 前缀）；启用记忆时调用 `p.mem.Start(p.ctx)`，立即返回，连库与迁移在记忆后台协程内进行，数据库不可达不阻止启动。
+6. 启动单写协程 `writeLoop`（按提交顺序串行执行写穿透队列，见 §4.6）。
+7. 启动完成，等待事件。
 
 **`Stop(ctx)`**
 
 1. 标记关闭（`closing`，此后不再接受新的写穿透、后台任务或 MCP 刷新），广播写队列并等待 `writerDone`：**先**让已排队的写穿透按序落库，**再**取消插件级 ctx。写穿透的 ctx 派生自 `p.ctx`，顺序反了会让持久化后端（sqlite/mysql）上的最后一次覆盖/策略写入被当场取消丢弃（见 §4.6）。
-2. `p.cancel()`：取消插件级 ctx，终止全部派生工作。
-3. 失效全部批处理：对每个 `channelState` 停止 `timer`、递增 `timerSeq` 并清空 `awaiting`/`firstAt`，使已触发的旧回调无法再改状态或重新布防。
-4. `p.wg.Wait()`：等待全部生成与 MCP 刷新协程退出；有 MCP session 时，用 Stop 阶段 ctx 加超时发送 DELETE（[`mcp.md`](mcp.md) §14.7）。
-5. 幂等：重复调用安全。不需要额外 flush——每次变更都已进入写队列，第 1 步只等队列排空（见第 4 章）。
+2. 启用记忆时调用 `p.mem.Stop(ctx)`：关闭入队准入，在 2s 上界内写完队列并关闭连接池。必须在 `p.cancel()` 之前，因为 flush 需要尚未取消的插件级 ctx；之后仍在收尾的生成协程入队直接失败。
+3. `p.cancel()`：取消插件级 ctx，终止全部派生工作。
+4. 失效全部批处理：对每个 `channelState` 停止 `timer`、递增 `timerSeq` 并清空 `awaiting`/`firstAt`，使已触发的旧回调无法再改状态或重新布防。
+5. `p.wg.Wait()`：等待全部生成与 MCP 刷新协程退出；有 MCP session 时，用 Stop 阶段 ctx 加超时发送 DELETE（[`mcp.md`](mcp.md) §14.7）。
+6. 幂等：重复调用安全。写穿透不需要额外 flush——每次变更都已进入写队列，第 1 步只等队列排空（见第 4 章）。
 
 `register.go` 的注册与元信息（逐字）：
 
@@ -140,6 +144,7 @@ func (p *Plugin) Metadata() bot.Metadata {
 | MCP 目录刷新协程 | 管理员 reload 触发，以插件级 ctx 派生超时，完成后退出，由 `p.wg` 跟踪 | 插件级至多 1 个，不排队（[`mcp.md`](mcp.md) §14.6） |
 | 每会话生成协程 | 批处理窗口结束时通过 `startTask` 登记并启动，`generate` 返回时 `Done` | 每会话至多 1 个（`inflight` 保证；窗口遇到在途生成时保留本轮并短暂重试）；全局至多 `limits_max_concurrent` 个真正调用 LLM 的协程 |
 | 写穿透协程 | `Start` 启动单个 `writeLoop` 常驻，`Stop` 关闭准入并排空队列后退出 | 固定 1 个；按提交顺序串行执行 `Storage.Set`，单次 1s 超时；由 `writerDone` 跟踪，`Stop` 在取消插件级 ctx 之前等队列排空 |
+| 记忆后台协程 | 启用记忆时 `p.mem.Start(p.ctx)` 启动，依次连库（Ping 指数退避）→ 迁移 → 攒批写入；`p.mem.Stop` 取消并在 2s 内 flush 后退出 | 固定 1 个；Handler 与生成协程只做非阻塞 `Enqueue`（队列容量 `memory_queue_size`，满即丢弃计数），见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.3 |
 
 全局信号量 `limits_max_concurrent`（默认 2）用**非阻塞获取**（`TryAcquire`）；获取失败记 `semaphore_full` 并放弃本轮，不排队。
 
@@ -284,17 +289,19 @@ kei-plugin-persona/
 ├── mcp.go           MCP 客户端、协议、工具发现、调用与结果转换
 ├── commands.go      /agent 管理命令
 ├── policy.go        插件级名单策略：模式判定、/agent policy|list 渲染、policy 键读写
+├── memory.go        memoryBackend 接口；入站消息与自身回复的记忆记录构造
 ├── config_test.go   配置解析与校验单测
-├── decision_test.go 决策模型单测（过滤/寻址/随机/窗口/epoch/名单/私聊）
+├── decision_test.go 决策模型单测（过滤/寻址/随机/窗口/epoch/名单/私聊/记忆入队）
 ├── llm_test.go      LLM 客户端单测（httptest.Server）
 ├── tools_test.go    工具调用循环单测（桩 completer + 桩工具）
 ├── mcp_test.go      MCP 调用、刷新、并发快照与取消（共用 httptest.Server 桩）
 ├── persona_test.go  人格解析、模板渲染、历史渲染、清洗单测
 ├── policy_test.go   名单策略单测（模式矩阵/命令输出/持久化/启动恢复）
-├── plugin_test.go   生命周期单测（阶段 ctx 取消后运行期仍可用、Stop 排空写队列）
+├── memory_test.go   记忆记录构造单测（Conv/ReplyTo/Mentions/时间/截断/本地事件 ID）
+├── plugin_test.go   生命周期单测（阶段 ctx 取消后运行期仍可用、Stop 排空写队列、记忆先于 cancel 停止）
 ├── helpers_test.go  测试桩与测试环境构造
 ├── e2e_test.go      Mock 适配器端到端测试
-├── internal/memory/ 记忆子系统（尚未接入根包，见 memory/summary-layer/summary-layer.md §16.3）
+├── internal/memory/ 记忆子系统（根包经 memory.go 接入，见 memory/summary-layer/summary-layer.md §16.3）
 │   ├── types.go     Record / Conv / Sender / Stats 与状态常量
 │   ├── convkey.go   conv_key 与去重键推导
 │   ├── memory.go    Config、Service、Start/Stop/Stats、连库与迁移状态机
@@ -318,8 +325,9 @@ kei-plugin-persona/
 | `vision.go` | 图片下载与 base64 data URL 编码：地址限制拨号器（含 CGNAT/特殊用途段、清空 TLS 拨号钩子）、体积上限、格式白名单（llm_vision_allowed_formats）、失败丢弃、debug 日志折叠。 |
 | `tools.go` | `tool` 接口、`toolResult`、按人格过滤 `toolsFor`、目录快照/整体替换、工具调用循环 `completeWithTools`/`runTool`（轮数与每轮调用上限、超时与长度兜底、epoch 复核），见 [`mcp.md`](mcp.md) §13.2-13.4。 |
 | `mcp.go` | `mcpClient`/`mcpTool`：初始化、HTTP/SSE、会话、工具列表与调用、结果转换；除内置记忆工具外的唯一工具来源，见 [`mcp.md`](mcp.md) 第 14 章。 |
-| `commands.go` | `/agent status|persona|on|off|reset|policy|list|tools` 子命令实现。 |
+| `commands.go` | `/agent status|persona|on|off|reset|policy|list|tools|memory` 子命令实现。 |
 | `policy.go` | 插件级名单策略：`policyState`/`policyValue`、四值模式放行判定、`policy` 键读写、`/agent policy|list` 报告渲染。 |
+| `memory.go` | `memoryBackend` 接口（`*memory.Service` 实现，测试注入 `fakeMemory`）；`memoryRecordFromEvent` / `memoryRecordFromReply` 构造入站消息与自身回复的记忆记录，见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4。 |
 | `internal/memory/memory.go` | 记忆子系统入口 `Service`：后台连库（Ping 指数退避）→ 迁移 → 写循环，`Stop` 关闭准入并在上界内写完队列，见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.3。 |
 | `internal/memory/ingest.go` | 非阻塞 `Enqueue`、攒批、每批一个事务（会话 upsert、消息按去重键插入、每日计数累加）、失败重试与停止前 flush。 |
 | `internal/memory/convkey.go` | `conv_key`（群不含机器人 ID，私聊含）与去重键（`m:<MsgID>` / `e:<EventID>`）推导与合法性校验。 |

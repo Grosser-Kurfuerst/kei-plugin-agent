@@ -101,6 +101,7 @@ reg.OnCommand("agent", p.handleCommand,
 | `list <group\|private> add\|del <id>` | 追加/移除名单项 → 写穿透持久化 |
 | `tools` | 只读本地目录，显示全部工具名称（[`mcp.md`](mcp.md) §14.6） |
 | `tools reload` | 后台刷新 MCP 工具目录；Handler 立即回复，完成后另发结果（[`mcp.md`](mcp.md) §14.6） |
+| `memory status` | 只读记忆子系统的计数快照，不访问数据库、不建会话状态（见下） |
 | 未知子命令 | 回用法文本 |
 
 命令的即时回复用注入的 `Reply`（核心会自动在回复首位加引用触发消息的 `SegReply` 段，支持引用的平台因此显示为「回复某条消息」；`bot.NewNoopReply` 不加引用，测试里断言的是纯文本）。命令**不做 LLM 调用、不进历史**。`tools reload` 的后续结果由插件级 ctx 驱动的后台任务通过 `BotAPI.Send` 发送，不能使用已返回 Handler 的 ctx/Reply。
@@ -108,7 +109,7 @@ reg.OnCommand("agent", p.handleCommand,
 用法文本（逐字）：
 
 ```text
-用法: /agent status | persona [name] | on | off | reset | policy [group|private mode] | list [group|private [add|del id]] | tools [reload]
+用法: /agent status | persona [name] | on | off | reset | policy [group|private mode] | list [group|private [add|del id]] | tools [reload] | memory status
 ```
 
 `policy`/`list` 的输出行（逐字，语义与空名单行为见 [`participation.md`](participation.md) §7.8）：
@@ -137,6 +138,15 @@ reg.OnCommand("agent", p.handleCommand,
 ```
 
 目录为空时输出 `persona: tools=[]`；`N` 是本次发布的工具总数，全部来自 MCP。只有 reload 成功发布目录后才发送成功通知，失败原因不得包含凭据或 session ID；语法非法仍回用法文本。
+
+`memory status` 的输出（逐字，`<…>` 为取值；设计见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4）：
+
+```text
+记忆：已启用 数据库=<连接中|就绪|迁移失败|已停止>
+写入：已写入 <written> 重复 <duplicates> 丢弃 <dropped> 失败批次 <failedBatches> 队列 <len>/<cap>
+```
+
+`memory_database_dsn` 为空时只输出 `记忆：未启用`；`memory` 后缺参或参数非法回用法文本。
 
 **`/agent status` 输出（字段顺序固定，`·` 分隔，逐字）**：
 
