@@ -425,7 +425,7 @@ type ConvDay struct {
 
 | 字段 | 入站消息 | 自身回复 |
 | --- | --- | --- |
-| `Conv` | 由 `ev` 构造，与 `channelKey` 同源；私聊 `PeerUserID = ev.Sender.ID`，`Name` 回落发送者昵称 | 由 `channelState` 的 `platform/botID/channelID/peerUserID` 构造；`Name` 留空：`channelState.channelName` 只在建状态时赋值、不随改名更新，带上它会把入站消息刚写入的新群名覆盖回旧名，留空则按 S1 的 upsert 规则保留已有名称，群名只由入站消息维护 |
+| `Conv` | 由 `ev` 构造，与 `channelKey` 同源；私聊 `PeerUserID = ev.Sender.ID`，`Name` 回落发送者昵称 | 由发送 `target` 构造（其 `platform/botID/channelID/userID` 取自 `channelState`）；`Name` 留空：`channelState.channelName` 只在建状态时赋值、不随改名更新，带上它会把入站消息刚写入的新群名覆盖回旧名，留空则按 S1 的 upsert 规则保留已有名称，群名只由入站消息维护 |
 | `EventID` | `ev.ID` | `MsgID` 为空时为 `local:<Start 时刻 UnixNano>:<p.memSeq 自增>` |
 | `MsgID` | `ev.Message.ID` | `SendResult.MessageID` |
 | `At` | `ev.Time`，为零取 `p.now()`，统一 `UTC()` | 发送成功时的 `p.now().UTC()` |
