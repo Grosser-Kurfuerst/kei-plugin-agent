@@ -23,8 +23,10 @@
 
 - Go 1.25+（`go.mod` 为 `go 1.25.0`）。
 - 优先标准库：`context`、`log/slog`、`net/http`、`encoding/json`、`sync`、`math/rand`、`time`、`strings`、`unicode/utf8`。
-- 零第三方运行时依赖，LLM 调用用纯 `net/http`；不引入任何 LLM SDK。
-- 唯一非标准库依赖是 `github.com/RandomLemon/kei`（提供 `pkg/bot`、`pkg/message`）。
+- LLM 调用用纯 `net/http`；不引入任何 LLM SDK。
+- 非标准库依赖只有两类：
+  - `github.com/RandomLemon/kei`（提供 `pkg/bot`、`pkg/message`），全仓库可用；
+  - 记忆子系统专用的 `gorm.io/gorm`、`gorm.io/driver/postgres`、`github.com/pgvector/pgvector-go`（M3 事实层起使用），**只允许** `internal/memory` 及其子包 import（设计见 [`docs/memory/overview.md`](docs/memory/overview.md) §15.3）。根包与其余代码仍然只依赖标准库与 kei。
 - 本地开发用 `replace github.com/RandomLemon/kei => ../kei` 指向本地检出（本仓库契约版本为上游 HEAD，见 [`docs/architecture.md`](docs/architecture.md) 第 6 节）。
 - 开发环境：`flake.nix` + `.envrc`（direnv `use flake` → `nix develop`）提供 Go/gopls/gotools/golangci-lint/dlv 工具链，`GOTOOLCHAIN=local`。flake 只提供 `devShell` 与 `formatter`：构建依赖同级 kei 检出，nix 沙箱内没有该目录，故不提供 `packages`/`checks`。
 

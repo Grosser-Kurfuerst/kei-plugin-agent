@@ -65,7 +65,7 @@ MCP 接入的配置键（行为见 [`mcp.md`](mcp.md) 第 14 章）：
 
 | 键 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `mcp_url` | string | `""` | 完整 Streamable HTTP MCP 端点；唯一工具来源，空时工具目录为空。地址修改需重启，工具目录可运行时刷新；需 LLM 服务支持 tool calling |
+| `mcp_url` | string | `""` | 完整 Streamable HTTP MCP 端点；除内置记忆工具外的唯一工具来源，空时 MCP 工具目录为空。地址修改需重启，工具目录可运行时刷新；需 LLM 服务支持 tool calling |
 | `mcp_extra_headers` | map[string]string | `{}` | 每个 MCP HTTP 请求附带的固定头，如 Authorization；只经 PluginContext.Config 读取，不允许覆盖协议保留头 |
 | `mcp_timeout` | duration | `8s` | 初始化或完整目录刷新操作的总预算（含分页）；工具调用仍使用 `tools_call_timeout` |
 
@@ -169,7 +169,7 @@ plugins:
     tools_call_timeout: "8s"
     tools_result_max_chars: 2000
 
-    # ---- MCP（唯一工具来源，mcp.md 第 14 章）----
+    # ---- MCP（除内置记忆工具外的唯一工具来源，mcp.md 第 14 章）----
     mcp_url: ""                   # 例："http://127.0.0.1:9000/mcp"；空时无工具
     mcp_extra_headers: {}
     mcp_timeout: "8s"

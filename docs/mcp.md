@@ -1,6 +1,6 @@
 # mcp.md — 工具调用与 MCP 接入（第 13-14 章）
 
-本文统一定义工具调用与外部 MCP 接入。第 13 章保留通用接口、调用循环、业务边界和日志契约；第 14 章定义 MCP 客户端、运行时目录刷新、生命周期与分阶段实施规划。MCP 是唯一工具来源。
+本文统一定义工具调用与外部 MCP 接入。第 13 章保留通用接口、调用循环、业务边界和日志契约；第 14 章定义 MCP 客户端、运行时目录刷新、生命周期与分阶段实施规划。除内置记忆工具（`memory__*`，见 §13.5）外，MCP 是唯一工具来源。
 
 配置键与默认值以 [`configuration.md#101-全量配置键表`](configuration.md#101-全量配置键表) 为准，交付状态见 [`roadmap.md#121-现状`](roadmap.md#121-现状)。LLM 请求/响应结构见 [`llm.md`](llm.md) §9.1-9.2；生成流程见 [`participation.md`](participation.md) §7.6。
 
@@ -10,13 +10,13 @@
 
 LLM 自行决定是否调用当前人格可用的工具。调用发生在后台 `generate` 协程内，使用插件级 `p.ctx`；Handler 保持毫秒级返回。工具失败作为结果文本交还模型，由模型照常回答，或在允许 skip 时输出 skip token。
 
-工具循环统一限制调用轮数、每轮调用数、单次超时和结果长度。工具调用与结果不写入 `channelState.history`，历史只保存聊天轮次；不做固定预检索，也不提供公开 Go 工具注册 API。MCP 是唯一工具来源，范围与业务实现边界见 §14.1、§13.5。
+工具循环统一限制调用轮数、每轮调用数、单次超时和结果长度。工具调用与结果不写入 `channelState.history`，历史只保存聊天轮次；不做固定预检索，也不提供公开 Go 工具注册 API。除内置记忆工具外，MCP 是唯一工具来源，范围与业务实现边界见 §14.1、§13.5。
 
 **前提**：LLM 服务必须支持 OpenAI 兼容的 `tools` / `tool_calls`。自建 vLLM 需以 `--enable-auto-tool-choice --tool-call-parser <解析器>` 启动；Ollama 需使用支持工具的模型。不支持时服务通常返回 4xx，每轮记 `llm_error`，可用 `debug_prompts=true` 排查。
 
 ### 13.2 工具抽象
 
-工具定义与调用结构体见 [`llm.md`](llm.md) §9.1（`toolDef`、`toolCall`）。保留现有私有接口（逐字），生产实现只有 `mcpTool`；测试仍可直接注入桩工具：
+工具定义与调用结构体见 [`llm.md`](llm.md) §9.1（`toolDef`、`toolCall`）。保留现有私有接口（逐字），生产实现只有 `mcpTool` 与内置记忆工具（§13.5）；测试仍可直接注入桩工具：
 
 ```go
 // tool 是一个可供 LLM 调用的工具。
@@ -39,6 +39,8 @@ type toolResult struct {
 ### 13.3 工具选择
 
 `toolsFor(personaName)` 复制当前目录并按人格过滤，整个生成固定使用这一快照。配置启用、名称和人格三态的唯一规则见 §14.3；目录读取、替换与并发规则见 §14.6。
+
+启用记忆工具（`memory_database_dsn` 非空且 `memory_tools_enabled=true`）时，签名改为 `toolsFor(personaName string, st *channelState)`：可用工具 = MCP 目录快照 + 绑定本会话的记忆工具（排在 MCP 工具之后），再按人格名单过滤（[`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.8）。
 
 可用工具为空时，请求不带 `tools` 字段，只调用一次 `Complete`，普通聊天仍可运行。`p.tools` 仍是测试注入缝（[`testing.md`](testing.md) §11.2）。
 
@@ -103,6 +105,8 @@ runTool(tools, i, call) toolResult:            # 循环层兜底，对所有工�
 
 persona 只负责发现、适配与调用，不实现知识库、天气等业务接口。若需要原有 `knowledge_search` 能力，由外部 MCP 服务封装知识库接口，发现后作为 `mcp__knowledge_search` 暴露给模型；工具描述、参数 schema 与返回内容由服务定义。外部业务工具实现不属于本仓库交付。
 
+**唯一例外是记忆工具 `memory__*`**（[`memory/overview.md`](memory/overview.md) §15.4.3）。记忆查询的可见范围取决于「当前是哪个会话、谁在提问」，这个身份必须由插件根据事件注入，不能由模型填写；MCP 调用只有模型给出的参数，带不上插件注入的可信身份，所以记忆工具内置在插件中。工具本身只做参数解析与结果映射，查询交给同进程的记忆子系统 `internal/memory`（[`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.2.4）。除记忆工具外，不新增任何内置工具；知识库、天气等其余能力一律经 MCP 接入。
+
 ### 13.6 日志
 
 每次工具调用由循环以 `Debug` 输出一行（`debug_prompts` 无关）：
@@ -122,7 +126,7 @@ msg="persona 工具调用" channel=<key> tool=<name> status=<status> detail=<det
 
 persona 作为 MCP 客户端连接外部服务，将服务端的每个工具分别暴露给 LLM。服务端增加、删除或修改工具后，管理员在 persona 中刷新目录，后续生成使用新目录，无需重新编译或重启 persona。
 
-第一版连接一个配置好的服务端，支持 **Streamable HTTP + 普通同步工具调用**，**MCP 是唯一工具来源，删除现有内置工具链路**。支持 JSON 与 POST 响应中的 SSE，工具结果支持文本和结构化 JSON。
+第一版连接一个配置好的服务端，支持 **Streamable HTTP + 普通同步工具调用**，**MCP 是唯一的外部工具来源，删除现有内置工具链路**（之后只允许内置记忆工具，见 §13.5）。支持 JSON 与 POST 响应中的 SSE，工具结果支持文本和结构化 JSON。
 
 P8 同时移除 `toolSpec`、`builtinTools`、`findToolSpec`、`buildTools`、`rag.go` 与对应的专用测试，删除 `tools_enabled` 和 `rag_*` 配置。保留 `tool` / `toolResult`、人格过滤和通用工具循环。不保留内置工具兼容层；需要知识库检索时，由外部 MCP 服务提供工具。
 
@@ -180,6 +184,7 @@ plugins:
 - `name`、`description`、`inputSchema` 分别转换为 `toolDef.Function.Name`、`Description`、`Parameters`；schema 保留原 JSON 对象，不实现完整 JSON Schema 校验器或 schema 改写器。
 - 人格 `tools` 不写或为 null：继承当前全部工具；`[]`：无工具；名单：取与当前目录的交集，保持装配顺序。
 - 人格名单只接受 `mcp__` 名称，在配置阶段校验名称格式及 `mcp_url` 非空，不要求远端当前存在；不存在时不会暴露给模型。这样可以先配置将来新增的工具，删除远端工具也无需同步修改人格配置。
+- 记忆工具例外：启用记忆工具时，不写 `tools` 的人格同样继承已启用的记忆工具；名单中的 `memory__` 名称必须是内置记忆工具名，且要求记忆工具已启用，校验规则见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.8。`memory__` 前缀保留给内置工具，MCP 工具一律带 `mcp__` 前缀，两者不会重名。
 
 ### 14.4 MCP 协议最小实现
 
@@ -221,8 +226,8 @@ HTTP/JSON-RPC 必须处理的部分：
 
 新增管理员命令：
 
-- `/agent tools`：显示当前全部工具名称，只读本地目录，不联网。
-- `/agent tools reload`：后台重新拉取 MCP 工具目录；未启用 MCP 时明确提示。只允许一个刷新在途，重复命令立即提示正在刷新，不排队。
+- `/agent tools`：显示当前全部工具名称（MCP 目录 + 已启用的记忆工具），只读本地目录，不联网。
+- `/agent tools reload`：后台重新拉取 MCP 工具目录，不影响记忆工具；未启用 MCP 时明确提示。只允许一个刷新在途，重复命令立即提示正在刷新，不排队。
 
 reload 的 Handler 只做参数校验、记录回复目标、登记任务并立即回复「开始刷新」。协程从插件级 `p.ctx` 派生超时，完成后用 `BotAPI.Send` 向原会话发送成功条数或失败原因；发送同样有超时。不持有 Handler ctx、Reply 或可变 Event 指针，命令不进聊天历史。
 

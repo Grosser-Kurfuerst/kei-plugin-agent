@@ -309,7 +309,7 @@ kei-plugin-persona/
 | `llm.go` | `completer` 接口与 `openaiClient` 实现（请求构造、响应解析、超时重试）。 |
 | `vision.go` | 图片下载与 base64 data URL 编码：地址限制拨号器（含 CGNAT/特殊用途段、清空 TLS 拨号钩子）、体积上限、格式白名单（llm_vision_allowed_formats）、失败丢弃、debug 日志折叠。 |
 | `tools.go` | `tool` 接口、`toolResult`、按人格过滤 `toolsFor`、目录快照/整体替换、工具调用循环 `completeWithTools`/`runTool`（轮数与每轮调用上限、超时与长度兜底、epoch 复核），见 [`mcp.md`](mcp.md) §13.2-13.4。 |
-| `mcp.go` | `mcpClient`/`mcpTool`：初始化、HTTP/SSE、会话、工具列表与调用、结果转换；唯一工具来源，见 [`mcp.md`](mcp.md) 第 14 章。 |
+| `mcp.go` | `mcpClient`/`mcpTool`：初始化、HTTP/SSE、会话、工具列表与调用、结果转换；除内置记忆工具外的唯一工具来源，见 [`mcp.md`](mcp.md) 第 14 章。 |
 | `commands.go` | `/agent status|persona|on|off|reset|policy|list|tools` 子命令实现。 |
 | `policy.go` | 插件级名单策略：`policyState`/`policyValue`、四值模式放行判定、`policy` 键读写、`/agent policy|list` 报告渲染。 |
 | `*_test.go` | 按文件名的领域单测；`e2e_test.go` 走 mock 适配器端到端。 |
