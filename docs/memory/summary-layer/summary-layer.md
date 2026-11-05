@@ -444,7 +444,7 @@ type ConvDay struct {
 *生命周期*
 
 - `setup`：DSN 非空时 `p.mem = memory.New(cfg, p.log)`（S4 起改为 `memory.New(cfg, p.log, pc.HTTPClient)`）。未启用时保持 nil **接口值**，不能赋 nil 指针。
-- `Start`：保存插件级 ctx 后调用 `p.mem.Start(p.ctx)`。
+- `Start`：保存插件级 ctx、MCP 目录加载成功后调用 `p.mem.Start(p.ctx)`（MCP 失败中止启动时不启动记忆）；同时记录 `memEpoch = p.now().UnixNano()`，即本地事件 ID 中的「Start 时刻」。
 - `Stop`：在 [`../../architecture.md`](../../architecture.md) §3.1 第 1 步（置 `closing`、等 `writerDone`）之后、第 2 步 `p.cancel()` 之前调用 `p.mem.Stop(ctx)`。必须在 `p.cancel()` 之前，因为 flush 需要尚未取消的插件级 ctx。之后 `Enqueue` 返回 false，仍在收尾的生成协程按「无记忆」继续。
 
 *配置*
@@ -467,7 +467,7 @@ type ConvDay struct {
 
 DSN 本身不校验格式：写错会在运行期连接失败，status 显示「连接中」。
 
-*`/agent memory status`*：只读 `p.mem.Stats()`，不访问数据库。本阶段输出（逐字，`<…>` 为取值）：
+*`/agent memory status`*：只读 `p.mem.Stats()`，不访问数据库，也不建会话状态（与 `tools` 一样在取会话状态之前处理）；`memory` 后缺参或参数非法回用法文本。本阶段输出（逐字，`<…>` 为取值）：
 
 ```text
 记忆：已启用 数据库=<连接中|就绪|迁移失败|已停止>

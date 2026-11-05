@@ -14,7 +14,7 @@
 | 阶段 | 所属 | 状态 | 开始日期 | 完成日期 | 提交 / PR | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | S1 存储与写入 | M1 | 已完成 | 2026-11-05 | 2026-11-05 | `feat/memory` e965e96 … 171d7bf | 未接入根包；golangci-lint 0 issues |
-| S2 根包接入采集 | M1 | 未开始 | — | — | — | — |
+| S2 根包接入采集 | M1 | 已完成 | 2026-11-05 | 2026-11-05 | `feat/memory` 8568c53 … 53a95ad | 运行验收用最小 kei 宿主 + mock 适配器 + 本地 PostgreSQL 走通；golangci-lint 0 issues |
 | S3 任务框架与清理 | M2 | 未开始 | — | — | — | — |
 | S4 日摘要流水线 | M2 | 未开始 | — | — | — | — |
 | S5 读取与注入 | M2 | 未开始 | — | — | — | — |
@@ -34,12 +34,12 @@
 
 ### S2 根包接入采集（§16.3.4）
 
-- [ ] 记录构造、入队点、生命周期接入
-- [ ] 配置键与校验、`/agent memory status` 两行
-- [ ] 验收表全部通过
-- [ ] 运行验收：落库、重复投递、数据库宕机与恢复、启动时数据库不可达
-- [ ] 质量门全绿
-- [ ] 文档同步：`configuration.md`、`architecture.md` 第 1 章 / §3.1 / §3.2 / 第 5 章、`persona.md` §8.4、`testing.md` §11.2
+- [x] 记录构造、入队点、生命周期接入
+- [x] 配置键与校验、`/agent memory status` 两行
+- [x] 验收表全部通过
+- [x] 运行验收：落库、重复投递、数据库宕机与恢复、启动时数据库不可达
+- [x] 质量门全绿
+- [x] 文档同步：`configuration.md`、`architecture.md` 第 1 章 / §3.1 / §3.2 / 第 5 章、`persona.md` §8.4、`testing.md` §11.2
 
 ### S3 任务框架与清理（§16.3.5）
 
@@ -100,4 +100,5 @@
 | 日期 | 阶段 | 偏差 | 处理 |
 | --- | --- | --- | --- |
 | 2026-11-05 | S1 | 实现时补全的细节：`conv_key` 也要求 `Platform` 非空；群会话行不记 `bot_id`；`At` 为零值时用写入时刻；DSN 无法解析时记 `Error` 并退出、状态保持「连接中」；新增常量 `migrateTimeout = 30s`；连库、迁移、写入由同一个后台协程依次执行；被 `Stop` 打断的批次交给 flush 重写；gorm 日志适配器命名为 `store.NewLogger` | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.3 |
+| 2026-11-05 | S2 | 实现时补全的细节：`p.mem.Start` 放在 MCP 目录加载成功之后；`memEpoch` 在 `Start` 记录；`/agent memory` 不建会话状态，缺参或参数非法回用法文本；自身回复的 `Conv` 取自发送目标（与 `channelState` 同源） | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.4 |
 | 2026-11-05 | S1 | 按「不留占位」，`New` 在 S1 不带 `httpClient`（S4 引入 LLM 客户端时再加）；`prepare` 清洗 `Text` 与名字中的非法 UTF-8 和 `\x00`，`Enqueue` 复制 `Mentions`；数据库从未就绪时 `Stop` 对队列残留记 `Warn` | 已同步到 [`summary-layer.md`](summary-layer.md) §16.2.4、§16.3.3、§16.3.4、§16.3.6 |
