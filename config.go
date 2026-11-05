@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/RandomLemon/kei/pkg/bot"
+
+	"github.com/RandomLemon/kei-plugin-persona/internal/memory"
 )
 
 const (
@@ -125,6 +127,8 @@ type config struct {
 
 	limitsMaxConcurrent int
 	debugPrompts        bool
+
+	memory memory.Config // DatabaseDSN 为空表示未启用记忆
 }
 
 // loadConfig 读取全部键、填默认值并校验。
@@ -347,7 +351,46 @@ func loadConfig(c *bot.Config) (*config, error) {
 		return nil, cfgErr("random_timezone", r.str("random_timezone", "Local"), "不是合法时区")
 	}
 	cfg.randomTimezone = loc
+
+	if cfg.memory, err = readMemoryConfig(r); err != nil {
+		return nil, err
+	}
+	cfg.memory.Location = loc
 	return cfg, nil
+}
+
+// readMemoryConfig 读取并校验 memory_* 键（Location 由调用方填）。
+func readMemoryConfig(r cfgReader) (memory.Config, error) {
+	m := memory.Config{
+		DatabaseDSN:    r.str("memory_database_dsn", ""),
+		IngestInterval: r.dur("memory_ingest_interval", 5*time.Second),
+	}
+	var err error
+	if m.MaxOpenConns, err = r.intKey("memory_db_max_open_conns", 8, "必须 >= 1"); err != nil {
+		return m, err
+	}
+	if m.IngestBatch, err = r.intKey("memory_ingest_batch", 50, "必须 >= 1"); err != nil {
+		return m, err
+	}
+	if m.QueueSize, err = r.intKey("memory_queue_size", 2048, "必须 >= 1"); err != nil {
+		return m, err
+	}
+	if m.IngestInterval <= 0 {
+		return m, cfgErr("memory_ingest_interval", m.IngestInterval.String(), "必须 > 0")
+	}
+	if err := needMinInt("memory_db_max_open_conns", m.MaxOpenConns, 1); err != nil {
+		return m, err
+	}
+	if err := needMinInt("memory_ingest_batch", m.IngestBatch, 1); err != nil {
+		return m, err
+	}
+	if err := needMinInt("memory_queue_size", m.QueueSize, 1); err != nil {
+		return m, err
+	}
+	if m.IngestBatch > m.QueueSize {
+		return m, cfgErr("memory_ingest_batch", strconv.Itoa(m.IngestBatch), "不能大于 memory_queue_size")
+	}
+	return m, nil
 }
 
 // readPersonas 解析 personas，并回落各字段默认值。

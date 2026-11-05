@@ -62,6 +62,11 @@ func TestLoadConfigDefaults(t *testing.T) {
 		{"tools_result_max_chars", cfg.toolsResultMaxChars, 2000},
 		{"mcp_url", cfg.mcpURL, ""},
 		{"mcp_timeout", cfg.mcpTimeout, 8 * time.Second},
+		{"memory_database_dsn", cfg.memory.DatabaseDSN, ""},
+		{"memory_db_max_open_conns", cfg.memory.MaxOpenConns, 8},
+		{"memory_ingest_batch", cfg.memory.IngestBatch, 50},
+		{"memory_ingest_interval", cfg.memory.IngestInterval, 5 * time.Second},
+		{"memory_queue_size", cfg.memory.QueueSize, 2048},
 	}
 	for _, c := range checks {
 		if c.got != c.want {
@@ -83,6 +88,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if cfg.randomTimezone == nil {
 		t.Error("randomTimezone 未解析")
+	}
+	if cfg.memory.Location != cfg.randomTimezone {
+		t.Error("memory.Location 应取自 random_timezone")
 	}
 }
 
@@ -231,6 +239,18 @@ func TestLoadConfigErrors(t *testing.T) {
 			"persona: 配置错误 tools_call_timeout=-1s: 必须 > 0"},
 		{"tools_call_timeout 为零", func(c map[string]any) { c["tools_call_timeout"] = "0s" },
 			"persona: 配置错误 tools_call_timeout=0s: 必须 > 0"},
+		{"memory_ingest_interval 为零", func(c map[string]any) { c["memory_ingest_interval"] = "0s" },
+			"persona: 配置错误 memory_ingest_interval=0s: 必须 > 0"},
+		{"memory_db_max_open_conns 为零", func(c map[string]any) { c["memory_db_max_open_conns"] = 0 },
+			"persona: 配置错误 memory_db_max_open_conns=0: 必须 >= 1"},
+		{"memory_ingest_batch 为零", func(c map[string]any) { c["memory_ingest_batch"] = 0 },
+			"persona: 配置错误 memory_ingest_batch=0: 必须 >= 1"},
+		{"memory_queue_size 为零", func(c map[string]any) { c["memory_queue_size"] = 0 },
+			"persona: 配置错误 memory_queue_size=0: 必须 >= 1"},
+		{"memory_ingest_batch 大于队列", func(c map[string]any) {
+			c["memory_ingest_batch"] = 100
+			c["memory_queue_size"] = 10
+		}, "persona: 配置错误 memory_ingest_batch=100: 不能大于 memory_queue_size"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
