@@ -371,7 +371,7 @@ type ConvDay struct {
   CREATE INDEX IF NOT EXISTS idx_mem_message_msg_id ON mem_message (conv_key, msg_id) WHERE msg_id <> '';
   ```
 
-- `store.NewLogger` 实现 `gorm.io/gorm/logger.Interface`：`Trace` 只在出错（`ErrRecordNotFound` 除外）或耗时 > 1s 时记 `Warn`，字段 `operation=memory_sql`、`duration_ms`、`rows`、`err`；**不输出 SQL 文本与参数**。
+- `store.NewLogger` 实现 `gorm.io/gorm/logger.Interface`：`Trace` 只在出错（`ErrRecordNotFound` 与 `context.Canceled` 除外）或耗时 > 1s 时记 `Warn`，字段 `operation=memory_sql`、`duration_ms`、`rows`、`err`；**不输出 SQL 文本与参数**。
 - `Stop`（幂等）：数据库从未就绪而队列中仍有记录时，记 `Warn`：`operation=memory_stop dropped=<n>`。关闭准入并取消后台协程的 ctx → 写循环在 `flushTimeout` 内非阻塞排空队列并按批写入（ctx 为去掉取消信号的插件级 ctx 加 `flushTimeout`；不再重试，超时放弃剩余并记 `Warn`）→ 关闭连接池。连库或迁移阶段的协程随 ctx 取消直接退出。
 
 *常量*：`ingestWriteTimeout = 5s`，`flushTimeout = 2s`，`migrateTimeout = 30s`。
@@ -384,6 +384,7 @@ type ConvDay struct {
 | 迁移失败 | `Error`：`operation=memory_migrate err=…` |
 | 批量写入最终失败 / 成功 | `Warn`：`operation=memory_ingest success=false count=<n> err=…` / `Debug`：`success=true count=<n> duplicates=<d>` |
 | flush 超时 | `Warn`：`operation=memory_flush dropped=<n>` |
+| 数据库从未就绪即停止、队列有残留 | `Warn`：`operation=memory_stop dropped=<n>` |
 
 **本阶段不做**：根包接入；任务表；滚动摘要触发。
 

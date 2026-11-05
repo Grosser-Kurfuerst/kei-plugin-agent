@@ -13,7 +13,7 @@
 
 | 阶段 | 所属 | 状态 | 开始日期 | 完成日期 | 提交 / PR | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
-| S1 存储与写入 | M1 | 进行中 | 2026-11-05 | — | — | 代码与验收测试已提交，待评审 |
+| S1 存储与写入 | M1 | 已完成 | 2026-11-05 | 2026-11-05 | `feat/memory` e965e96 … 171d7bf | 未接入根包；golangci-lint 0 issues |
 | S2 根包接入采集 | M1 | 未开始 | — | — | — | — |
 | S3 任务框架与清理 | M2 | 未开始 | — | — | — | — |
 | S4 日摘要流水线 | M2 | 未开始 | — | — | — | — |
@@ -28,8 +28,8 @@
 - [x] `go.mod` 引入 `gorm.io/gorm`、`gorm.io/driver/postgres`
 - [x] 类型、`conv_key`、模型与迁移、写协程、连库状态机与 `Stop`
 - [x] `memtest.NewDB` 与测试库启动说明
-- [ ] 验收表全部通过
-- [ ] 质量门全绿
+- [x] 验收表全部通过
+- [x] 质量门全绿
 - [x] 文档同步：`architecture.md` 第 5 章、`testing.md` §11.1
 
 ### S2 根包接入采集（§16.3.4）
@@ -100,4 +100,4 @@
 | 日期 | 阶段 | 偏差 | 处理 |
 | --- | --- | --- | --- |
 | 2026-11-05 | S1 | 实现时补全的细节：`conv_key` 也要求 `Platform` 非空；群会话行不记 `bot_id`；`At` 为零值时用写入时刻；DSN 无法解析时记 `Error` 并退出、状态保持「连接中」；新增常量 `migrateTimeout = 30s`；连库、迁移、写入由同一个后台协程依次执行；被 `Stop` 打断的批次交给 flush 重写；gorm 日志适配器命名为 `store.NewLogger` | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.3 |
-| 2026-11-05 | S1 | 按「不留占位」，`New` 在 S1 不带 `httpClient`（S4 引入 LLM 客户端时再加）；`prepare` 清洗 `Text` 与名字中的非法 UTF-8 和 `\x00`、复制 `Mentions`；数据库从未就绪时 `Stop` 对队列残留记 `Warn` | 已同步到 [`summary-layer.md`](summary-layer.md) §16.2.4、§16.3.3、§16.3.4、§16.3.6 |
+| 2026-11-05 | S1 | 按「不留占位」，`New` 在 S1 不带 `httpClient`（S4 引入 LLM 客户端时再加）；`prepare` 清洗 `Text` 与名字中的非法 UTF-8 和 `\x00`，`Enqueue` 复制 `Mentions`；数据库从未就绪时 `Stop` 对队列残留记 `Warn` | 已同步到 [`summary-layer.md`](summary-layer.md) §16.2.4、§16.3.3、§16.3.4、§16.3.6 |
