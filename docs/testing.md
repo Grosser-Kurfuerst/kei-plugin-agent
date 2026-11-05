@@ -18,6 +18,17 @@ go test -race ./...
 
 `go test -race ./...` 是**必过项**：本插件大量使用定时器与并发状态，竞态检测不可省。
 
+**记忆子系统的数据库测试**：`internal/memory` 下需要数据库的测试读环境变量 `PERSONA_MEMORY_TEST_DSN`，未设置时 `t.Skip`（质量门在无数据库环境下仍可全绿，但合并记忆相关改动前须带数据库跑一遍）。该变量只是测试基础设施，不属于运行期配置。本地启动测试库：
+
+```bash
+docker run --rm -d --name persona-mem-test -p 127.0.0.1:5432:5432 \
+  -e POSTGRES_PASSWORD=test postgres:17
+export PERSONA_MEMORY_TEST_DSN='postgres://postgres:test@localhost:5432/postgres?sslmode=disable'
+go test -race ./internal/memory/...
+```
+
+每个测试经 `memtest.NewDB` 建独立 schema（DSN 带 `search_path`），结束时删除，测试之间互不影响。
+
 ## 11.2 单元测试矩阵
 
 ```text

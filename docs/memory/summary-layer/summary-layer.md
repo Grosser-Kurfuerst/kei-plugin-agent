@@ -290,9 +290,9 @@ type Stats struct {
 
 *会话键与写入规则*
 
-- `conv_key` 格式见 [`overview.md`](../overview.md) §15.5.1：`group:<platform>:<channel_id>`、`private:<platform>:<bot_id>:<user_id>`。`group` 必须有 `ChannelID`；`private` 必须有 `BotID` 与 `PeerUserID`；不满足的丢弃并计入 `Rejected`。
+- `conv_key` 格式见 [`overview.md`](../overview.md) §15.5.1：`group:<platform>:<channel_id>`、`private:<platform>:<bot_id>:<user_id>`。`group` 必须有 `Platform` 与 `ChannelID`；`private` 必须有 `Platform`、`BotID` 与 `PeerUserID`；不满足的丢弃并计入 `Rejected`。群会话由多个机器人共享，`mem_conversation` 的群行不记 `bot_id`。
 - 去重键：`MsgID` 非空时为 `m:<MsgID>`，否则 `e:<EventID>`；两者都空时丢弃并计入 `Rejected`。同一群内多个机器人收到同一条平台消息时只落一条。
-- `At` 晚于写入时刻 5 分钟以上时改用写入时刻。
+- `At` 晚于写入时刻 5 分钟以上或为零值时改用写入时刻。
 
 *模型*（`TableName()` 返回 `mem_*`；字符串列 `not null;default:''`，整数与布尔列 `not null`，下面省略）
 
@@ -352,15 +352,15 @@ type ConvDay struct {
   2. upsert 本批涉及的会话，冲突时只更新两列：`name = COALESCE(NULLIF(EXCLUDED.name, ''), mem_conversation.name)`（不让没带名字的记录清空群名），`last_msg_at = GREATEST(mem_conversation.last_msg_at, EXCLUDED.last_msg_at)`。
   3. 逐条 `Clauses(clause.OnConflict{DoNothing: true}).Create(&msg)`，`RowsAffected == 0` 计为重复。逐条插入是为了拿到准确 ID 与重复计数。
   4. 按 `(conv_key, local_date)` 汇总，upsert `mem_conv_day`：`msg_count + n`，`last_msg_id = GREATEST(...)`。
-- 重试：失败后再试 2 次，退避 1s、2s（同时监听 stop 与 ctx）；最终失败时 `FailedBatches + 1`，丢弃本批。写入按去重键幂等，重试安全。不做落盘缓冲。
+- 重试：失败后再试 2 次，退避 1s、2s（同时监听 stop 与 ctx）；最终失败时 `FailedBatches + 1`，丢弃本批。写入按去重键幂等，重试安全。不做落盘缓冲。写入中途被 `Stop` 打断的批次交给 flush 再写一次。
 
 *连库、迁移与停止*
 
-- `Start` 后台协程：
-  1. `gorm.Open(postgres.Open(dsn), &gorm.Config{DisableAutomaticPing: true, Logger: newGormLogger(log)})`，设置连接池上限。
+- `Start` 启动唯一的后台协程，依次：
+  1. `gorm.Open(postgres.Open(dsn), &gorm.Config{DisableAutomaticPing: true, Logger: store.NewLogger(log)})`，设置连接池上限。DSN 无法解析时记 `Error`（不带 `err`，避免输出连接串）并退出，状态保持「连接中」。
   2. `PingContext`（每次 5s 超时），失败按 1s、2s、4s … 最长 60s 退避重试，直到成功或 ctx 取消。
-  3. 迁移。失败时状态置为「迁移失败」，不再重试，直到重启。
-  4. 状态置为「就绪」，启动写协程。
+  3. 迁移（超时 `migrateTimeout`）。失败时状态置为「迁移失败」，不再重试，直到重启。
+  4. 状态置为「就绪」，进入写循环。
 - 迁移在一个事务内执行；单实例部署，不加跨进程锁（§16.2.5）。表与普通列交给 `AutoMigrate`，索引用 `Exec` 幂等创建：
 
   ```sql
@@ -370,10 +370,10 @@ type ConvDay struct {
   CREATE INDEX IF NOT EXISTS idx_mem_message_msg_id ON mem_message (conv_key, msg_id) WHERE msg_id <> '';
   ```
 
-- `newGormLogger` 实现 `gorm.io/gorm/logger.Interface`：`Trace` 只在出错（`ErrRecordNotFound` 除外）或耗时 > 1s 时记 `Warn`，字段 `operation=memory_sql`、`duration_ms`、`rows`、`err`；**不输出 SQL 文本与参数**。
-- `Stop`（幂等）：关闭准入 → 写协程在 `flushTimeout` 内非阻塞排空队列并按批写入（不再重试，超时放弃剩余并记 `Warn`）→ 关闭连接池。后台连库协程随 ctx 取消退出。
+- `store.NewLogger` 实现 `gorm.io/gorm/logger.Interface`：`Trace` 只在出错（`ErrRecordNotFound` 除外）或耗时 > 1s 时记 `Warn`，字段 `operation=memory_sql`、`duration_ms`、`rows`、`err`；**不输出 SQL 文本与参数**。
+- `Stop`（幂等）：关闭准入并取消后台协程的 ctx → 写循环在 `flushTimeout` 内非阻塞排空队列并按批写入（ctx 为去掉取消信号的插件级 ctx 加 `flushTimeout`；不再重试，超时放弃剩余并记 `Warn`）→ 关闭连接池。连库或迁移阶段的协程随 ctx 取消直接退出。
 
-*常量*：`ingestWriteTimeout = 5s`，`flushTimeout = 2s`。
+*常量*：`ingestWriteTimeout = 5s`，`flushTimeout = 2s`，`migrateTimeout = 30s`。
 
 *日志*
 

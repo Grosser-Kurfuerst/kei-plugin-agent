@@ -266,7 +266,8 @@ type channelState struct {
 
 ```text
 kei-plugin-persona/
-├── go.mod           module github.com/RandomLemon/kei-plugin-persona（require kei）
+├── go.mod           module github.com/RandomLemon/kei-plugin-persona（require kei；GORM 两个包仅供 internal/memory）
+├── go.sum           依赖校验和
 ├── flake.nix        nix devShell（go / gopls / golangci-lint / dlv / jq / curl）
 ├── flake.lock       flake 输入锁（nixpkgs）
 ├── .envrc           direnv：进入目录自动执行 `nix develop`
@@ -293,6 +294,13 @@ kei-plugin-persona/
 ├── plugin_test.go   生命周期单测（阶段 ctx 取消后运行期仍可用、Stop 排空写队列）
 ├── helpers_test.go  测试桩与测试环境构造
 ├── e2e_test.go      Mock 适配器端到端测试
+├── internal/memory/ 记忆子系统（尚未接入根包，见 memory/summary-layer/summary-layer.md §16.3）
+│   ├── types.go     Record / Conv / Sender / Stats 与状态常量
+│   ├── convkey.go   conv_key 与去重键推导
+│   ├── memory.go    Config、Service、Start/Stop/Stats、连库与迁移状态机
+│   ├── ingest.go    Enqueue、写协程、批量事务写入与停止前 flush
+│   ├── store/       GORM 模型（mem_conversation / mem_message / mem_conv_day）、LocalDate、迁移、gorm 日志适配
+│   └── memtest/     测试用：按测试建独立 schema（NewDB）
 ├── docs/            设计文档（本目录即实现口径）
 ├── AGENTS.md        硬性规则与结构概览
 └── LICENSE          MIT
@@ -312,6 +320,11 @@ kei-plugin-persona/
 | `mcp.go` | `mcpClient`/`mcpTool`：初始化、HTTP/SSE、会话、工具列表与调用、结果转换；除内置记忆工具外的唯一工具来源，见 [`mcp.md`](mcp.md) 第 14 章。 |
 | `commands.go` | `/agent status|persona|on|off|reset|policy|list|tools` 子命令实现。 |
 | `policy.go` | 插件级名单策略：`policyState`/`policyValue`、四值模式放行判定、`policy` 键读写、`/agent policy|list` 报告渲染。 |
+| `internal/memory/memory.go` | 记忆子系统入口 `Service`：后台连库（Ping 指数退避）→ 迁移 → 写循环，`Stop` 关闭准入并在上界内写完队列，见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.3。 |
+| `internal/memory/ingest.go` | 非阻塞 `Enqueue`、攒批、每批一个事务（会话 upsert、消息按去重键插入、每日计数累加）、失败重试与停止前 flush。 |
+| `internal/memory/convkey.go` | `conv_key`（群不含机器人 ID，私聊含）与去重键（`m:<MsgID>` / `e:<EventID>`）推导与合法性校验。 |
+| `internal/memory/store/` | 模型与表名、`LocalDate` 换算、事务内幂等迁移（AutoMigrate + 索引）、只记出错与慢查询且不输出 SQL 的 gorm 日志适配。 |
+| `internal/memory/memtest/` | `NewDB`：未设置 `PERSONA_MEMORY_TEST_DSN` 时跳过；为每个测试建独立 schema 并在结束时删除。 |
 | `*_test.go` | 按文件名的领域单测；`e2e_test.go` 走 mock 适配器端到端。 |
 
 ## 6. 与 kei 核心的契约对应
