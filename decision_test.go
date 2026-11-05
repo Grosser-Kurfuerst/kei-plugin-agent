@@ -1572,3 +1572,27 @@ func TestMemoryIngestLocalEventID(t *testing.T) {
 		t.Errorf("MsgID = %q, want empty", self[0].MsgID)
 	}
 }
+
+func TestMemoryStatusCommand(t *testing.T) {
+	env := newTestEnv(t, nil, nil)
+	if got := env.command("memory", "status"); got != "记忆：未启用" {
+		t.Fatalf("未启用 status = %q", got)
+	}
+
+	mem := &fakeMemory{stats: memory.Stats{
+		State: memory.StateReady, Written: 12, Duplicates: 3, Dropped: 1, FailedBatches: 2, QueueLen: 5, QueueCap: 2048,
+	}}
+	env = newTestEnvMem(t, nil, nil, nil, nil, mem)
+	want := "记忆：已启用 数据库=就绪\n写入：已写入 12 重复 3 丢弃 1 失败批次 2 队列 5/2048"
+	if got := env.command("memory", "status"); got != want {
+		t.Fatalf("已启用 status = %q, want %q", got, want)
+	}
+	for _, args := range [][]string{{"memory"}, {"memory", "bogus"}, {"memory", "status", "x"}} {
+		if got := env.command(args...); got != personaUsage() {
+			t.Fatalf("command %v = %q, want usage", args, got)
+		}
+	}
+	if n := channelCount(env.p); n != 0 {
+		t.Fatalf("memory 命令不应建会话状态, channels=%d", n)
+	}
+}
