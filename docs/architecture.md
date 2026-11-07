@@ -276,7 +276,7 @@ kei-plugin-persona/
 ├── flake.nix        nix devShell（go / gopls / golangci-lint / dlv / jq / curl）
 ├── flake.lock       flake 输入锁（nixpkgs）
 ├── .envrc           direnv：进入目录自动执行 `nix develop`
-├── .gitignore       忽略 .direnv/、/bin/、*.test 等本地产物
+├── .gitignore       忽略 .direnv/、/bin/、*.test、cmd/devhost/.env 等本地产物
 ├── register.go      init() 注册 + Metadata（插件名 persona、权限声明）
 ├── plugin.go        Plugin 结构、Setup/Start/Stop、runtime 装配
 ├── config.go        配置结构、读取与默认值、校验（loadConfig）
@@ -308,6 +308,12 @@ kei-plugin-persona/
 │   ├── ingest.go    Enqueue、写协程、批量事务写入与停止前 flush
 │   ├── store/       GORM 模型（mem_conversation / mem_message / mem_conv_day）、LocalDate、迁移、gorm 日志适配
 │   └── memtest/     测试用：按测试建独立 schema（NewDB）
+├── cmd/devhost/     本地联调宿主（独立 Go 模块，不属于插件本体，见 testing.md §11.5）
+│   ├── go.mod       module …/cmd/devhost（replace 本仓库与同级 kei）
+│   ├── go.sum       依赖校验和
+│   ├── main.go      空导入本插件与 mock / onebot 适配器后 kei.Run
+│   ├── config.yaml  联调配置（不含密钥与本机地址）
+│   └── .env.example 本机值与密钥的环境变量模板（复制为 .env，已忽略）
 ├── docs/            设计文档（本目录即实现口径）
 ├── AGENTS.md        硬性规则与结构概览
 └── LICENSE          MIT
@@ -334,6 +340,7 @@ kei-plugin-persona/
 | `internal/memory/store/` | 模型与表名、`LocalDate` 换算、事务内幂等迁移（AutoMigrate + 索引）、只记出错与慢查询且不输出 SQL 的 gorm 日志适配。 |
 | `internal/memory/memtest/` | `NewDB`：未设置 `PERSONA_MEMORY_TEST_DSN` 时跳过；为每个测试建独立 schema 并在结束时删除。 |
 | `*_test.go` | 按文件名的领域单测；`e2e_test.go` 走 mock 适配器端到端。 |
+| `cmd/devhost/` | 本地联调宿主：独立 Go 模块，与 kei 的 `cmd/bot` 同构，空导入本插件与所需适配器；连哪个 bot、用哪个数据库由 `config.yaml` 与 `.env` 决定，见 [`testing.md`](testing.md) §11.5。 |
 
 ## 6. 与 kei 核心的契约对应
 

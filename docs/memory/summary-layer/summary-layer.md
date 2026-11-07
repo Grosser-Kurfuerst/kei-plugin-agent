@@ -1092,5 +1092,5 @@ var ErrInvalidDateRange = errors.New("memory: 日期范围非法")
 | S5 | `configuration.md` 上下文键；`persona.md` §8.5 记忆块位置与逐字格式；`architecture.md` 第 2 章数据流 |
 | S6 | `configuration.md` 的 `memory_tools_enabled` 与人格 `tools` 校验；`architecture.md` 第 1 章工具边界改为「除内置记忆工具外经 MCP」、第 5 章 `memory_tools.go`；核对 [`../../mcp.md`](../../mcp.md) §13.3、§13.5、§14.3、§14.6 |
 | S7 | 无新增契约；评测结果记在 `RESULTS.md` |
-| 每个阶段 | [`progress.md`](progress.md) 的阶段状态与清单，并同步 [`../progress.md`](../progress.md) |
+| 每个阶段 | [`progress.md`](progress.md) 的阶段状态与清单，并同步 [`../progress.md`](../progress.md)；本阶段在其他文档新增记忆相关章节时，同步 [`../overview.md`](../overview.md) 开头的文档索引 |
 | 可选 | `flake.nix` 的 devShell 加入 PostgreSQL（属于代码改动，随任一阶段提交） |

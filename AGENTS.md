@@ -12,7 +12,7 @@
 
 ### 2.1 分层与依赖
 
-- 只依赖 `github.com/RandomLemon/kei/pkg/bot`（唯一公开 SDK）与 `github.com/RandomLemon/kei/pkg/message`（消息段构建器）；禁止 import `github.com/RandomLemon/kei/internal/...`。
+- 只依赖 `github.com/RandomLemon/kei/pkg/bot`（唯一公开 SDK）与 `github.com/RandomLemon/kei/pkg/message`（消息段构建器）；禁止 import `github.com/RandomLemon/kei/internal/...`。例外：本地联调宿主 `cmd/devhost` 是独立 Go 模块与宿主入口、不属于插件本体，§2 的插件规则不适用（见 [`docs/testing.md`](docs/testing.md) §11.5）。
 - 禁止任何平台名分支（`switch platform`、`if platform == "feishu"` 等）：本插件只处理 `bot.MessageGroup`，与具体平台无关。
 - 配置与密钥只能经 `PluginContext.Config` 读取；禁止直接读环境变量、配置文件或 `os.Getenv`。
 - `init()` 只注册插件，禁止在 `init()` 内读取配置或建立依赖；所有运行期依赖只能在 `Setup`/`Start` 经 `bot.PluginContextFrom(ctx)` 取得。
@@ -63,7 +63,7 @@
 ## 5. 项目结构与文档索引
 
 - 目录树、每个源文件与测试文件的职责：见 [`docs/architecture.md`](docs/architecture.md) 第 5 章。
-- 文档索引（全仓库唯一一份）：见 [`docs/README.md`](docs/README.md) §1。
+- 文档索引：见 [`docs/README.md`](docs/README.md) §1；记忆系统的文档索引见其中指向的 [`docs/memory/overview.md`](docs/memory/overview.md) 开头。
 
 ## 6. 工作流
 

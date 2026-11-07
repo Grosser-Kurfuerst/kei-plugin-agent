@@ -4,6 +4,37 @@
 
 记忆分为三层：摘要层、原子事实层、知识图谱层，用户画像挂在图谱的 User 节点上。方案按「QQ / 群聊人格机器人」的规模裁剪，全部使用公开可用的组件（§15.3）。
 
+**文档索引**
+
+本节是记忆系统的文档索引，查记忆相关问题先看这里。[`../README.md`](../README.md) §1 只列本文作为入口，`docs/memory/` 下的其余文档只在这里登记。
+
+记忆系统文档：
+
+| 文件 | 章号 | 内容 |
+| --- | --- | --- |
+| [`overview.md`](overview.md) | 15 | 本文。总体方案：定位与边界、三层分工、技术选型与存储评估（TableStorage / GORM）、实体对齐与调度、整体架构与模块边界、作用域与数据结构、数据流、错误处理、分阶段迭代、已确认决策 |
+| [`progress.md`](progress.md) | — | 记忆系统实现进度：M0–M5 阶段状态、全局规则与契约的落地情况、变更记录 |
+| [`summary-layer/summary-layer.md`](summary-layer/summary-layer.md) | 16 | 摘要层实现：高层设计（模块、数据流、数据模型、门面接口、运行约束，§16.1–16.2）与 S1–S7 分阶段实现计划（每阶段的详细设计、改动与验收，§16.3） |
+| [`summary-layer/progress.md`](summary-layer/progress.md) | — | 摘要层实现进度：S1–S7 阶段状态与完成清单、评测结果摘要、偏差记录 |
+| 事实层、图谱与画像、治理与运维（M3–M5） | — | 待编写 |
+
+其他文档中的记忆相关章节：
+
+| 主题 | 位置 |
+| --- | --- |
+| 依赖范围（GORM、pgvector-go 只允许 `internal/memory`） | [`../../AGENTS.md`](../../AGENTS.md) §2.2 |
+| 插件功能边界中的记忆部分 | [`../architecture.md`](../architecture.md) 第 1 章 |
+| `Setup` / `Start` / `Stop` 中的记忆步骤、记忆协程 | [`../architecture.md`](../architecture.md) §3.1、§3.2 |
+| 根包 `memory.go` 与 `internal/memory/` 的文件职责 | [`../architecture.md`](../architecture.md) 第 5 章 |
+| `memory_*` 配置键、示例、DSN 环境变量、校验规则 | [`../configuration.md`](../configuration.md) §10.1–10.4 |
+| `/agent memory` 命令与输出行 | [`../persona.md`](../persona.md) §8.4 |
+| 记忆块注入提示词的位置与格式（S5 起） | [`../persona.md`](../persona.md) §8.5 |
+| 内置记忆工具 `memory__*` 的边界与人格过滤 | [`../mcp.md`](../mcp.md) §13.3、§13.5、§14.3；本章 §15.4.3 |
+| 数据库测试（`PERSONA_MEMORY_TEST_DSN`）、单测矩阵、devhost 联调 | [`../testing.md`](../testing.md) §11.1、§11.2、§11.5 |
+| 插件整体交付状态（记忆部分只指向 `progress.md`） | [`../roadmap.md`](../roadmap.md) §12.1 |
+
+**同步规则**：`docs/memory/` 下新增、改名、删除文档，或其他文档中新增、移动、删除记忆相关章节时，同一次变更内同步本节两张表；[`../README.md`](../README.md) §1 不再登记记忆子文档。
+
 ## 15.1 定位与边界
 
 **做什么**
