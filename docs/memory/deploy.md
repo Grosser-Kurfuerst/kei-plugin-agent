@@ -22,8 +22,10 @@ SnowLuma 与 kei 的对接点：正向 WS 服务端用 `role: "Universal"`（kei
 **1. 建 LXC**：Debian 13 模板、非特权、2 核 / 4 GB / 20 GB、vmbr0 静态 IP。Docker 需要嵌套：
 
 ```bash
-pct set <CTID> --features nesting=1,keyctl=1   # 在 PVE 宿主上执行
+pct set <CTID> --features nesting=1   # 在 PVE 宿主上执行
 ```
+
+`keyctl` 不必开：未开时容器内 keyctl 系统调用返回 ENOSYS，Docker（runc）会容忍并照常运行。宿主还需加载 `overlay` 内核模块（`modprobe overlay`，并写入 `/etc/modules-load.d/` 持久化），即时生效，不必重启 CT。
 
 **2. 装 Docker**（容器内）：
 
@@ -32,7 +34,7 @@ apt update && apt install -y curl ca-certificates
 curl -fsSL https://get.docker.com | sh
 ```
 
-**3. Compose**：`/opt/kei-deps/compose.yaml`，同目录 `.env` 写 `PG_PASSWORD=<强密码>`。SnowLuma 的 `cap_add`、`security_opt`、`shm_size` 是其官方 Docker 文档要求的（ptrace 注入 QQ 进程、Chromium 共享内存），不能省；镜像名与端口以其 [Docker 部署文档](https://snowluma.github.io/zh/docs/guide/deploy/docker) 为准。
+**3. Compose**：`/opt/kei-deps/compose.yaml`，同目录 `.env`（权限 600）写 `PG_PASSWORD=<强密码>` 与 `VNC_PASSWD=<8 位密码>`。SnowLuma 的 `cap_add`、`security_opt`、`shm_size` 是其官方 Docker 文档要求的（ptrace 注入 QQ 进程、Chromium 共享内存），不能省；镜像名与端口以其 [Docker 部署文档](https://snowluma.github.io/zh/docs/guide/deploy/docker) 为准。
 
 ```yaml
 services:
@@ -43,11 +45,12 @@ services:
     cap_add: [SYS_PTRACE]
     security_opt: [seccomp=unconfined]
     ulimits:
-      nofile: { soft: 65536, hard: 1048576 }
+      nofile: { soft: 65536, hard: 524288 }   # 非特权 LXC 的上限，超过会启动失败
     environment:
       SNOWLUMA_WEBUI_HOST: 0.0.0.0
       SNOWLUMA_WEBUI_PORT: "5099"
       SNOWLUMA_QQ_FLAGS: --disable-gpu --disable-software-rasterizer --disable-gpu-compositing
+      VNC_PASSWD: ${VNC_PASSWD}
     ports:
       - "3001:3001"   # OneBot WS，给 devhost 连
       - "5099:5099"   # WebUI
@@ -82,16 +85,20 @@ cd /opt/kei-deps && docker compose up -d
 
 SnowLuma 的 ptrace 注入在「LXC 内嵌 Docker」下未在本项目验证过；若 snowluma 起不来或日志报注入失败，把它挪到 PVE 虚拟机里跑（Compose 不变），PostgreSQL 留在 LXC。
 
+若 snowluma 启动报 `error setting rlimit type 7: operation not permitted`：`nofile` 的 `hard` 超过了 LXC 的上限（非特权 CT 为 524288），按模板改小即可。
+
+VNC 密码：启动时依次取环境变量 `VNC_PASSWD`、卷内 `config/vnc-password`，都没有才随机生成并在日志打印 `远程桌面密码:`；选定值写回 `config/vnc-password`（在 `snowluma-data` 卷里，重启与重建都保留）。VNC 只认前 8 位。改密码：改 `.env` 的 `VNC_PASSWD` 后 `docker compose up -d snowluma`（重建容器，QQ 可能需要在 noVNC 里重新登录）。
+
 **4. 登录 QQ 与配置 OneBot**：
 
-1. 首次启动的日志里各打印一次 WebUI 临时密码与 VNC 密码：`docker compose logs snowluma 2>&1 | grep -E "临时密码|initial credentials|VNC"`。
+1. WebUI 临时密码只在首次启动的日志里打印，凭据在标题下几行：`docker compose logs snowluma 2>&1 | grep -A6 "initial credentials"`。修改密码前不要重启或重建 snowluma，否则临时密码会重新生成。VNC 密码见 `.env` 的 `VNC_PASSWD`。
 2. 浏览器开 `http://<DEPS_IP>:6081/`（noVNC，输 VNC 密码），在 QQ 窗口里用手机扫码登录 bot 的小号；登录后 hook 自动进入工作模式。
-3. 开 `http://<DEPS_IP>:5099/`（用户 `admin` + 临时密码），把正向 WS 服务端（配置文件 `config/onebot.json` 或 `config/onebot_<QQ号>.json` 的 `networks.wsServers`）设成：
+3. 开 `http://<DEPS_IP>:5099/`（用户 `admin` + 临时密码），先修改密码。
+4. 核对正向 WS 服务端：登录后生成的账号配置 `config/onebot_<QQ号>.json`（在 `snowluma-data` 卷里）的 `networks.wsServers`。SnowLuma 默认的 `ws-default` 条目已符合下面的要求，且自带随机 `accessToken`，通常不用改，只需取出 token 填进 devhost 的 `KEI_BOTS_QQ_MAIN_ACCESS_TOKEN`：`docker compose exec snowluma grep accessToken /app/data/config/onebot_<QQ号>.json`（`httpServers` 也有一个 `accessToken`，取 `wsServers` 里的）。要求如下：
 
    ```json
    {
-     "name": "kei",
-     "enabled": true,
+     "name": "ws-default",
      "host": "0.0.0.0",
      "port": 3001,
      "path": "/",
@@ -208,7 +215,7 @@ systemctl daemon-reload && systemctl enable --now kei && journalctl -u kei -f
 
 | 现象 | 先查 |
 | --- | --- |
-| WS 一直连不上 | `accessToken` 与 `KEI_BOTS_QQ_MAIN_ACCESS_TOKEN` 是否一致；`wsServers` 条目是否 `enabled`、`role` 是否 `Universal`；端口映射与防火墙 |
+| WS 一直连不上 | `accessToken` 与 `KEI_BOTS_QQ_MAIN_ACCESS_TOKEN` 是否一致；`wsServers` 条目是否存在（若带 `enabled` 字段须为 `true`）、`role` 是否 `Universal`；端口映射与防火墙 |
 | @ 了不回复 | `GROUP_LIST` 群号、`SELF_IDS` 的 bot QQ 号；`messageFormat` 是否 `array` |
 | `/agent` 无反应 | `KEI_AUTH_ADMIN_USERS` 是否写成 `onebot:<QQ号>` |
 | 记忆一直「连接中」 | DSN 的密码与 IP；`5432` 是否可达；是否带 `sslmode=disable` |
