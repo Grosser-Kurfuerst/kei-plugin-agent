@@ -573,6 +573,7 @@ type Handler func(ctx context.Context, job store.Job) (store.JobResult, error)
 - `workerConcurrency` 个协程。暂无任务时等待 `workerIdleWait`（监听 ctx）。按 `Type` 分发到注册的 Handler；未知类型直接失败，`last_error=未知任务类型`。
 - 每个任务的 ctx 派生自 worker ctx，带 `jobTimeout` 超时；超时按普通失败退避重试。
 - worker ctx 已取消（`Stop`）时不再写任务状态，任务留在 `running`，由下次启动重置。
+- 任务状态落库失败时，在当前 worker 内按 `workerIdleWait` 重试保存同一结果，每次带超时，不重复执行 Handler；等待响应 ctx 取消。
 
 *调度 tick*（每 `tickInterval`）
 

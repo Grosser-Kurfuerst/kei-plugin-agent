@@ -32,7 +32,7 @@ func TestMigrateIdempotent(t *testing.T) {
 		}
 	}
 
-	for _, table := range []string{"mem_conversation", "mem_message", "mem_conv_day"} {
+	for _, table := range []string{"mem_conversation", "mem_message", "mem_conv_day", "mem_job"} {
 		if !db.Migrator().HasTable(table) {
 			t.Errorf("缺少表 %s", table)
 		}

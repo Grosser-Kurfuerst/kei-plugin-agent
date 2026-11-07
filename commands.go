@@ -114,8 +114,8 @@ func (p *Plugin) memoryStatus() string {
 		return "记忆：未启用"
 	}
 	s := p.mem.Stats()
-	return fmt.Sprintf("记忆：已启用 数据库=%s\n写入：已写入 %d 重复 %d 丢弃 %d 失败批次 %d 队列 %d/%d",
-		s.State, s.Written, s.Duplicates, s.Dropped, s.FailedBatches, s.QueueLen, s.QueueCap)
+	return fmt.Sprintf("记忆：已启用 数据库=%s\n写入：已写入 %d 重复 %d 丢弃 %d 失败批次 %d 队列 %d/%d\n任务：待执行 %d 执行中 %d 失败 %d",
+		s.State, s.Written, s.Duplicates, s.Dropped, s.FailedBatches, s.QueueLen, s.QueueCap, s.JobsPending, s.JobsRunning, s.JobsDead)
 }
 
 func (p *Plugin) handleToolsCommand(ctx context.Context, target bot.Target, r bot.Reply, args []string) error {

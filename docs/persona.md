@@ -144,7 +144,10 @@ reg.OnCommand("agent", p.handleCommand,
 ```text
 记忆：已启用 数据库=<连接中|就绪|迁移失败|已停止>
 写入：已写入 <written> 重复 <duplicates> 丢弃 <dropped> 失败批次 <failedBatches> 队列 <len>/<cap>
+任务：待执行 <pending> 执行中 <running> 失败 <dead>
 ```
+
+任务计数每 60s 刷新一次。
 
 `memory_database_dsn` 为空时只输出 `记忆：未启用`；`memory` 后缺参或参数非法回用法文本。
 

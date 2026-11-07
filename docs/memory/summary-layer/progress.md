@@ -15,7 +15,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | S1 存储与写入 | M1 | 已完成 | 2026-11-05 | 2026-11-05 | `feat/memory` e965e96 … 171d7bf | 未接入根包；golangci-lint 0 issues |
 | S2 根包接入采集 | M1 | 已完成 | 2026-11-05 | 2026-11-05 | `feat/memory` 8568c53 … d14dddf | 运行验收用最小 kei 宿主 + mock 适配器 + 本地 PostgreSQL 走通；golangci-lint 0 issues；2026-11-08 在 SnowLuma + PostgreSQL 测试部署（[`../deploy.md`](../deploy.md)）上复验通过：部署验收、运行中断库、启动时库不可达与恢复、DB 单测 |
-| S3 任务框架与清理 | M2 | 未开始 | — | — | — | — |
+| S3 任务框架与清理 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `feat(memory): add scheduled jobs and retention cleanup` | 真实宿主分钟调度与 status 验收通过；质量门全绿，review 2 轮通过 |
 | S4 日摘要流水线 | M2 | 未开始 | — | — | — | — |
 | S5 读取与注入 | M2 | 未开始 | — | — | — | — |
 | S6 滚动摘要与显式查询 | M2 | 未开始 | — | — | — | — |
@@ -43,12 +43,12 @@
 
 ### S3 任务框架与清理（§16.3.5）
 
-- [ ] `mem_job`、领取与重试、启动时重置执行中任务、worker 池、调度 tick、`cleanup`
-- [ ] 配置键、status「任务」行
-- [ ] 验收表全部通过
-- [ ] 运行验收：到点后 `cleanup` 任务完成
-- [ ] 质量门全绿
-- [ ] 文档同步：`configuration.md`、`persona.md` §8.4、`architecture.md` §3.2
+- [x] `mem_job`、领取与重试、启动时重置执行中任务、worker 池、调度 tick、`cleanup`
+- [x] 配置键、status「任务」行
+- [x] 验收表全部通过
+- [x] 运行验收：到点后 `cleanup` 任务完成
+- [x] 质量门全绿
+- [x] 文档同步：`configuration.md`、`persona.md` §8.4、`architecture.md` §3.2
 
 ### S4 日摘要流水线（§16.3.6）
 
@@ -103,3 +103,7 @@
 | 2026-11-05 | S1 | 按「不留占位」，`New` 在 S1 不带 `httpClient`（S4 引入 LLM 客户端时再加）；`prepare` 清洗 `Text` 与名字中的非法 UTF-8 和 `\x00`，`Enqueue` 复制 `Mentions`；数据库从未就绪时 `Stop` 对队列残留记 `Warn` | 已同步到 [`summary-layer.md`](summary-layer.md) §16.2.4、§16.3.3、§16.3.4、§16.3.6 |
 | 2026-11-05 | S2 | 实现时补全的细节：`p.mem.Start` 放在 MCP 目录加载成功之后；`memEpoch` 在 `Start` 记录；`/agent memory` 不建会话状态，缺参或参数非法回用法文本；自身回复的 `Conv` 取自发送目标（与 `channelState` 同源） | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.4 |
 | 2026-11-08 | S1 | 远程 PostgreSQL 上 `TestConcurrentEnqueueAndStop` 稳定失败（`Written` 少一批、`Duplicates` 多一批）：`Stop` 取消 ctx 时正在 COMMIT 的批次服务端已提交、客户端报错，flush 重写后整批记成重复。改为 `Stop` 后正在写的批次与 flush 共用 `flushTimeout` 收尾时限，不再立即打断 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.3 |
+
+## 迭代验证记录
+
+- S3（2026-11-08）：Nix devShell / `GOTOOLCHAIN=local` 下 `gofmt`、build、vet、带 PostgreSQL 独立 schema 的 test / race、lint 全通过（0 issues）。`TestRuntimeHostCleanup` 用真实 devhost、mock 控制面与分钟时钟，60.10s 通过：cleanup 完成且 status 显示任务行。review 2 轮，最终 `NO_BLOCKING_ISSUES`；修复状态落库失败重试、未启用记忆时的新增配置校验，补齐清理与停止验证；无未复评修复。

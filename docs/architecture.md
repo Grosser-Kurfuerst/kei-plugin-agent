@@ -113,7 +113,7 @@ reg.OnCommand("agent", p.handleCommand,
 **`Stop(ctx)`**
 
 1. 标记关闭（`closing`，此后不再接受新的写穿透、后台任务或 MCP 刷新），广播写队列并等待 `writerDone`：**先**让已排队的写穿透按序落库，**再**取消插件级 ctx。写穿透的 ctx 派生自 `p.ctx`，顺序反了会让持久化后端（sqlite/mysql）上的最后一次覆盖/策略写入被当场取消丢弃（见 §4.6）。
-2. 启用记忆时调用 `p.mem.Stop(ctx)`：关闭入队准入，在 2s 上界内写完队列并关闭连接池。必须在 `p.cancel()` 之前，因为 flush 需要尚未取消的插件级 ctx；之后仍在收尾的生成协程入队直接失败。
+2. 启用记忆时调用 `p.mem.Stop(ctx)`：关闭入队准入，在 2s 上界内写完队列，再取消调度与 worker（最多等 3s），最后关闭连接池。必须在 `p.cancel()` 之前，因为 flush 需要尚未取消的插件级 ctx；之后仍在收尾的生成协程入队直接失败。
 3. `p.cancel()`：取消插件级 ctx，终止全部派生工作。
 4. 失效全部批处理：对每个 `channelState` 停止 `timer`、递增 `timerSeq` 并清空 `awaiting`/`firstAt`，使已触发的旧回调无法再改状态或重新布防。
 5. `p.wg.Wait()`：等待全部生成与 MCP 刷新协程退出；有 MCP session 时，用 Stop 阶段 ctx 加超时发送 DELETE（[`mcp.md`](mcp.md) §14.7）。
@@ -144,7 +144,9 @@ func (p *Plugin) Metadata() bot.Metadata {
 | MCP 目录刷新协程 | 管理员 reload 触发，以插件级 ctx 派生超时，完成后退出，由 `p.wg` 跟踪 | 插件级至多 1 个，不排队（[`mcp.md`](mcp.md) §14.6） |
 | 每会话生成协程 | 批处理窗口结束时通过 `startTask` 登记并启动，`generate` 返回时 `Done` | 每会话至多 1 个（`inflight` 保证；窗口遇到在途生成时保留本轮并短暂重试）；全局至多 `limits_max_concurrent` 个真正调用 LLM 的协程 |
 | 写穿透协程 | `Start` 启动单个 `writeLoop` 常驻，`Stop` 关闭准入并排空队列后退出 | 固定 1 个；按提交顺序串行执行 `Storage.Set`，单次 1s 超时；由 `writerDone` 跟踪，`Stop` 在取消插件级 ctx 之前等队列排空 |
-| 记忆后台协程 | 启用记忆时 `p.mem.Start(p.ctx)` 启动，依次连库（Ping 指数退避）→ 迁移 → 攒批写入；`p.mem.Stop` 取消并在 2s 内 flush 后退出 | 固定 1 个；Handler 与生成协程只做非阻塞 `Enqueue`（队列容量 `memory_queue_size`，满即丢弃计数），见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.3 |
+| 记忆调度协程 | 迁移完成并恢复中断任务后启动，每 60s 建任务并刷新计数；flush 后取消 | 固定 1 个；数据库操作有超时 |
+| 记忆任务 worker | 与调度一起启动，任务 ctx 派生自服务级 ctx，Stop 取消并最多等待 3s | 固定 2 个；独立于聊天并发上限；单任务 30 分钟超时 |
+| 记忆后台协程 | 启用记忆时 `p.mem.Start(p.ctx)` 启动，依次连库（Ping 指数退避）→ 迁移 → 攒批写入；`p.mem.Stop` 取消写循环、在 2s 内 flush，停止任务协程后退出 | 固定 1 个；Handler 与生成协程只做非阻塞 `Enqueue`（队列容量 `memory_queue_size`，满即丢弃计数），见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.3 |
 
 全局信号量 `limits_max_concurrent`（默认 2）用**非阻塞获取**（`TryAcquire`）；获取失败记 `semaphore_full` 并放弃本轮，不排队。
 
@@ -305,6 +307,8 @@ kei-plugin-persona/
 │   ├── types.go     Record / Conv / Sender / Stats 与状态常量
 │   ├── convkey.go   conv_key 与去重键推导
 │   ├── memory.go    Config、Service、Start/Stop/Stats、连库与迁移状态机
+│   ├── cleanup.go   过期清理、任务调度与 worker 生命周期
+│   ├── jobs/        持久化队列、调度与 worker 池
 │   ├── ingest.go    Enqueue、写协程、批量事务写入与停止前 flush
 │   ├── store/       GORM 模型（mem_conversation / mem_message / mem_conv_day）、LocalDate、迁移、gorm 日志适配
 │   └── memtest/     测试用：按测试建独立 schema（NewDB）

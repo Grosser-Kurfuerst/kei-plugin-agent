@@ -29,6 +29,15 @@ go test -race ./internal/memory/...
 
 每个测试经 `memtest.NewDB` 建独立 schema（DSN 带 `search_path`），结束时删除，测试之间互不影响。
 
+S3 真实宿主运行验收（只启动 mock，独立 schema；按真实分钟调度，约 1 分钟）：
+
+```bash
+go build -C cmd/devhost -o /tmp/persona-memory-devhost .
+PERSONA_MEMORY_HOST_BINARY=/tmp/persona-memory-devhost go test ./internal/memory -run TestRuntimeHostCleanup -v -count=1
+```
+
+该测试同时需要 `PERSONA_MEMORY_TEST_DSN`；普通质量门不设置宿主变量时跳过这项分钟级验收。
+
 ## 11.2 单元测试矩阵
 
 ```text

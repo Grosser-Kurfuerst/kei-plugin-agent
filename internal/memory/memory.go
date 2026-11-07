@@ -11,6 +11,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
+	"github.com/RandomLemon/kei-plugin-persona/internal/memory/jobs"
 	"github.com/RandomLemon/kei-plugin-persona/internal/memory/store"
 )
 
@@ -27,12 +28,15 @@ const (
 
 // Config 是记忆子系统的配置，由根包从 memory_* 键组装并校验（数值均为正数）。
 type Config struct {
-	DatabaseDSN    string
-	MaxOpenConns   int
-	Location       *time.Location // 取自 random_timezone
-	QueueSize      int
-	IngestBatch    int
-	IngestInterval time.Duration
+	DailyAt              string
+	MessageRetentionDays int
+	SummaryRetentionDays int
+	DatabaseDSN          string
+	MaxOpenConns         int
+	Location             *time.Location // 取自 random_timezone
+	QueueSize            int
+	IngestBatch          int
+	IngestInterval       time.Duration
 }
 
 // Service 是记忆子系统的入口：后台连库、迁移，并批量写入入队的原始消息。
@@ -42,6 +46,9 @@ type Service struct {
 	queue chan Record
 
 	// 注入缝：New 填默认值，同包测试可改小。
+	tickInterval       time.Duration
+	workerStopTimeout  time.Duration
+	workerIdleWait     time.Duration
 	now                func() time.Time
 	ingestWriteTimeout time.Duration
 	flushTimeout       time.Duration
@@ -59,6 +66,9 @@ type Service struct {
 	cancel  context.CancelFunc
 	done    chan struct{} // 后台协程退出时关闭
 
+	jobsPending   atomic.Int64
+	jobsRunning   atomic.Int64
+	jobsDead      atomic.Int64
 	written       atomic.Int64
 	duplicates    atomic.Int64
 	rejected      atomic.Int64
@@ -68,6 +78,15 @@ type Service struct {
 
 // New 创建 Service；不连库，连库在 Start 后进行。
 func New(cfg Config, log *slog.Logger) *Service {
+	if cfg.DailyAt == "" {
+		cfg.DailyAt = "04:00"
+	}
+	if cfg.MessageRetentionDays == 0 {
+		cfg.MessageRetentionDays = 60
+	}
+	if cfg.SummaryRetentionDays == 0 {
+		cfg.SummaryRetentionDays = 90
+	}
 	if cfg.Location == nil {
 		cfg.Location = time.UTC
 	}
@@ -75,6 +94,7 @@ func New(cfg Config, log *slog.Logger) *Service {
 		log = slog.Default()
 	}
 	return &Service{
+		tickInterval: tickInterval, workerStopTimeout: workerStopTimeout,
 		cfg:                cfg,
 		log:                log,
 		queue:              make(chan Record, cfg.QueueSize),
@@ -140,6 +160,7 @@ func (s *Service) Stats() Stats {
 	state := s.state
 	s.mu.RUnlock()
 	return Stats{
+		JobsPending: s.jobsPending.Load(), JobsRunning: s.jobsRunning.Load(), JobsDead: s.jobsDead.Load(),
 		State:         state,
 		Written:       s.written.Load(),
 		Duplicates:    s.duplicates.Load(),
@@ -164,6 +185,22 @@ func (s *Service) run(ctx context.Context) {
 	if !s.migrate(ctx, db) {
 		return
 	}
+	for {
+		opCtx, cancel := context.WithTimeout(ctx, ingestWriteTimeout)
+		err := (jobs.Queue{DB: db}).Reset(opCtx, s.now().UTC())
+		cancel()
+		if err == nil {
+			break
+		}
+		if ctx.Err() == nil {
+			s.log.Warn("persona memory: 恢复中断任务失败", "operation", "memory_job_reset", "err", err)
+		}
+		if !sleepCtx(ctx, s.connectBackoffMin) {
+			return
+		}
+	}
+	stopJobs := s.startJobs(ctx, db)
+	defer stopJobs()
 	s.setState(StateReady)
 	s.writeLoop(ctx, db)
 }

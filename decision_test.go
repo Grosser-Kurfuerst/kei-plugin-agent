@@ -1588,7 +1588,7 @@ func TestMemoryStatusCommand(t *testing.T) {
 		State: memory.StateReady, Written: 12, Duplicates: 3, Dropped: 1, FailedBatches: 2, QueueLen: 5, QueueCap: 2048,
 	}}
 	env = newTestEnvMem(t, nil, nil, nil, nil, mem)
-	want := "记忆：已启用 数据库=就绪\n写入：已写入 12 重复 3 丢弃 1 失败批次 2 队列 5/2048"
+	want := "记忆：已启用 数据库=就绪\n写入：已写入 12 重复 3 丢弃 1 失败批次 2 队列 5/2048\n任务：待执行 0 执行中 0 失败 0"
 	if got := env.command("memory", "status"); got != want {
 		t.Fatalf("已启用 status = %q, want %q", got, want)
 	}

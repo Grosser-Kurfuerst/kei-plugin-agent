@@ -49,8 +49,9 @@ type Sender struct {
 
 // Stats 是 /agent memory status 使用的计数快照。
 type Stats struct {
-	State                         string // StateConnecting | StateReady | StateMigrateFailed | StateStopped
-	Written, Duplicates, Rejected int64
-	Dropped, FailedBatches        int64
-	QueueLen, QueueCap            int
+	JobsPending, JobsRunning, JobsDead int64
+	State                              string // StateConnecting | StateReady | StateMigrateFailed | StateStopped
+	Written, Duplicates, Rejected      int64
+	Dropped, FailedBatches             int64
+	QueueLen, QueueCap                 int
 }

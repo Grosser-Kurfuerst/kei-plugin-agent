@@ -69,7 +69,7 @@ MCP 接入的配置键（行为见 [`mcp.md`](mcp.md) 第 14 章）：
 | `mcp_extra_headers` | map[string]string | `{}` | 每个 MCP HTTP 请求附带的固定头，如 Authorization；只经 PluginContext.Config 读取，不允许覆盖协议保留头 |
 | `mcp_timeout` | duration | `8s` | 初始化或完整目录刷新操作的总预算（含分页）；工具调用仍使用 `tools_call_timeout` |
 
-记忆子系统的配置键（设计见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4；本表只列已实现阶段的键）：
+记忆子系统的配置键（设计见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4–16.3.5；本表只列已实现阶段的键）：
 
 | 键 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
@@ -78,6 +78,9 @@ MCP 接入的配置键（行为见 [`mcp.md`](mcp.md) 第 14 章）：
 | `memory_ingest_batch` | int | `50` | 单批最多条数 |
 | `memory_ingest_interval` | duration | `5s` | 未满批的最长等待 |
 | `memory_queue_size` | int | `2048` | 入队队列容量 |
+| `memory_daily_at` | string | `04:00` | 每日任务时刻，按 `random_timezone` 解释 |
+| `memory_message_retention_days` | int | `60` | 原始消息保留天数 |
+| `memory_summary_retention_days` | int | `90` | 摘要及每日进度保留天数 |
 
 `plugins.persona.enabled` 由 kei 读取（布尔或标量简写），不进入插件配置，也不在上表内。
 
@@ -190,6 +193,9 @@ plugins:
     memory_ingest_batch: 50
     memory_ingest_interval: "5s"
     memory_queue_size: 2048
+    memory_daily_at: "04:00"
+    memory_message_retention_days: 60
+    memory_summary_retention_days: 90
 
     # ---- 回复 ----
     reply_max_chars: 200
@@ -344,6 +350,8 @@ persona: 配置错误 personas.helper.tools=mcp__search_manual: 未启用 MCP
 | `memory_ingest_batch` | 必须 >= 1；不能大于 `memory_queue_size`，否则 `不能大于 memory_queue_size` |
 | `memory_ingest_interval` | 必须 > 0 |
 | `memory_queue_size` | 必须 >= 1 |
+| `memory_daily_at` | 必须是 HH:MM |
+| `memory_message_retention_days`、`memory_summary_retention_days` | 必须 >= 1 |
 
 **注（列表键的取值口径）**：`self_ids`、`trigger_keywords`、`group_list`、`private_list`、`llm_vision_allowed_formats` 是五个 `[]string` 键，人格字段 `personas.<名>.tools` 同样，均由 `readStringList` 读取，都兼容 YAML 的常见写法：`["123"]`（带引号）、`[123]`（裸数字）、`123`（裸标量）、`"123,456"`（逗号分隔）。元素一律按 YAML 语义转成字符串后使用，不做 `x.(string)` 类型断言丢弃。
 

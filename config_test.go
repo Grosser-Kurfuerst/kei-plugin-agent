@@ -2,7 +2,9 @@ package persona
 
 import (
 	"context"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -320,5 +322,36 @@ func TestSetupRequiresPluginContext(t *testing.T) {
 	p := &Plugin{}
 	if err := p.Setup(context.Background(), &fakeRegistrar{}); err == nil {
 		t.Fatal("缺少 PluginContext 应报错")
+	}
+}
+
+func TestMemorySchedulingConfig(t *testing.T) {
+	for _, tc := range []struct {
+		key    string
+		value  any
+		reason string
+	}{
+		{"memory_daily_at", "4:00", "必须是 HH:MM"}, {"memory_daily_at", "24:00", "必须是 HH:MM"},
+		{"memory_message_retention_days", 0, "必须 >= 1"}, {"memory_summary_retention_days", 0, "必须 >= 1"},
+	} {
+		t.Run(tc.key+fmt.Sprint(tc.value), func(t *testing.T) {
+			c := baseConfigMap("http://x")
+			c["memory_database_dsn"] = "test"
+			c[tc.key] = tc.value
+			_, err := loadConfig(bot.NewConfig(c))
+			if err == nil || !strings.Contains(err.Error(), tc.reason) {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
+func TestDisabledMemoryIgnoresSchedulingConfig(t *testing.T) {
+	c := baseConfigMap("http://x")
+	c["memory_daily_at"] = "bad"
+	c["memory_message_retention_days"] = 0
+	c["memory_summary_retention_days"] = 0
+	if _, err := loadConfig(bot.NewConfig(c)); err != nil {
+		t.Fatal(err)
 	}
 }

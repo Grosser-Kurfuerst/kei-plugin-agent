@@ -65,3 +65,31 @@ func LocalDate(t time.Time, loc *time.Location) time.Time {
 	y, m, d := t.In(loc).Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
+
+// Job 是持久化后台任务，DedupeKey 保证调度幂等。
+type Job struct {
+	ID        int64 `gorm:"primaryKey"`
+	Type      string
+	DedupeKey string
+	Payload   JobPayload `gorm:"type:jsonb;serializer:json"`
+	Status    string
+	Attempts  int
+	RunAfter  time.Time
+	LastError string
+	Result    JobResult `gorm:"type:jsonb;serializer:json"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// TableName 返回表名。
+func (Job) TableName() string { return "mem_job" }
+
+// JobPayload 是任务参数。
+type JobPayload struct {
+	Date string `json:"date,omitempty"`
+}
+
+// JobResult 记录任务执行结果，失败时同样保存。
+type JobResult struct {
+	Deleted map[string]int64 `json:"deleted,omitempty"`
+}

@@ -362,8 +362,10 @@ func loadConfig(c *bot.Config) (*config, error) {
 // readMemoryConfig 读取并校验 memory_* 键（Location 由调用方填）。
 func readMemoryConfig(r cfgReader) (memory.Config, error) {
 	m := memory.Config{
-		DatabaseDSN:    r.str("memory_database_dsn", ""),
-		IngestInterval: r.dur("memory_ingest_interval", 5*time.Second),
+		DatabaseDSN:          r.str("memory_database_dsn", ""),
+		IngestInterval:       r.dur("memory_ingest_interval", 5*time.Second),
+		DailyAt:              r.str("memory_daily_at", "04:00"),
+		MessageRetentionDays: 60, SummaryRetentionDays: 90,
 	}
 	var err error
 	if m.MaxOpenConns, err = r.intKey("memory_db_max_open_conns", 8, "必须 >= 1"); err != nil {
@@ -389,6 +391,27 @@ func readMemoryConfig(r cfgReader) (memory.Config, error) {
 	}
 	if m.IngestBatch > m.QueueSize {
 		return m, cfgErr("memory_ingest_batch", strconv.Itoa(m.IngestBatch), "不能大于 memory_queue_size")
+	}
+	if m.DatabaseDSN == "" {
+		return m, nil
+	}
+	if len(m.DailyAt) != 5 {
+		return m, cfgErr("memory_daily_at", m.DailyAt, "必须是 HH:MM")
+	}
+	if _, err := time.Parse("15:04", m.DailyAt); err != nil {
+		return m, cfgErr("memory_daily_at", m.DailyAt, "必须是 HH:MM")
+	}
+	for _, item := range []struct {
+		key string
+		dst *int
+		def int
+	}{{"memory_message_retention_days", &m.MessageRetentionDays, 60}, {"memory_summary_retention_days", &m.SummaryRetentionDays, 90}} {
+		if *item.dst, err = r.intKey(item.key, item.def, "必须 >= 1"); err != nil {
+			return m, err
+		}
+		if err = needMinInt(item.key, *item.dst, 1); err != nil {
+			return m, err
+		}
 	}
 	return m, nil
 }

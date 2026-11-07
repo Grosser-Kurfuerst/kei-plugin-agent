@@ -14,7 +14,7 @@
 | --- | --- | --- | --- | --- | --- |
 | M0 契约 | 总体方案与各层文档、门面契约、作用域规则 | [`overview.md`](overview.md)、[`summary-layer/summary-layer.md`](summary-layer/summary-layer.md) | — | 进行中 | — |
 | M1 采集 | 存储与写入、根包接入采集 | [`summary-layer/summary-layer.md`](summary-layer/summary-layer.md) S1–S2 | [`summary-layer/progress.md`](summary-layer/progress.md) | 已完成 | 2026-11-05 |
-| M2 摘要层 | 任务框架、日摘要、读取注入、滚动摘要与显式查询、评测 | [`summary-layer/summary-layer.md`](summary-layer/summary-layer.md) S3–S7 | [`summary-layer/progress.md`](summary-layer/progress.md) | 未开始 | — |
+| M2 摘要层 | 任务框架、日摘要、读取注入、滚动摘要与显式查询、评测 | [`summary-layer/summary-layer.md`](summary-layer/summary-layer.md) S3–S7 | [`summary-layer/progress.md`](summary-layer/progress.md) | 进行中 | — |
 | M3 事实层 | 抽取与治理、`memory__save` / `memory__search`；引入 pgvector、pg_trgm 与 embedding | 待编写 | — | 未开始 | — |
 | M4 图谱与画像 | 节点与边、实体对齐、`memory__graph`、跨群关联、画像 | 待编写 | — | 未开始 | — |
 | M5 治理与运维 | 撤回处理、`/agent memory forget`、其余层清理、成本统计 | 待编写 | — | 未开始 | — |
