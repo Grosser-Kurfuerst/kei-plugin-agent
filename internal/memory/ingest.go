@@ -41,13 +41,20 @@ func (s *Service) Enqueue(r Record) bool {
 // writeLoop 攒批写入：满 IngestBatch 条立即写，IngestInterval 到期写未满的批。
 // ctx 取消（Stop）后写完剩余记录再返回。
 func (s *Service) writeLoop(ctx context.Context, db *gorm.DB) {
+	// writeCtx 在 ctx 取消（Stop）后再过 flushTimeout 才取消：正在写的批次不会被 Stop 立即打断
+	// （否则服务端已提交、客户端却报错，重写时整批被记成重复），并与随后的 flush 共用这一收尾时限。
+	writeCtx, cancelWrite := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelWrite()
+	stopAfter := context.AfterFunc(ctx, func() { time.AfterFunc(s.flushTimeout, cancelWrite) })
+	defer stopAfter()
+
 	batch := make([]Record, 0, s.cfg.IngestBatch)
 	ticker := time.NewTicker(s.cfg.IngestInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			s.flush(ctx, db, s.prepare(batch))
+			s.flush(writeCtx, db, s.prepare(batch))
 			return
 		case r := <-s.queue:
 			batch = append(batch, r)
@@ -61,8 +68,8 @@ func (s *Service) writeLoop(ctx context.Context, db *gorm.DB) {
 		}
 		b := s.prepare(batch)
 		batch = batch[:0]
-		if !s.writeWithRetry(ctx, db, b) {
-			s.flush(ctx, db, b) // 停止打断了本批，交给 flush 再写一次
+		if !s.writeWithRetry(ctx, writeCtx, db, b) {
+			s.flush(writeCtx, db, b) // 停止打断了本批，交给 flush 再写一次
 			return
 		}
 	}
@@ -143,13 +150,14 @@ func newConversation(key string, c Conv) *store.Conversation {
 }
 
 // writeWithRetry 写入一批，失败后按 retryBackoff 重试；最终失败时计入 FailedBatches 并丢弃。
+// ctx 取消（Stop）后不再重试；单次写入用 writeCtx，Stop 后仍可在 flushTimeout 内写完。
 // 返回 false 表示被停止打断、本批尚未写入。
-func (s *Service) writeWithRetry(ctx context.Context, db *gorm.DB, b ingestBatch) bool {
+func (s *Service) writeWithRetry(ctx, writeCtx context.Context, db *gorm.DB, b ingestBatch) bool {
 	if len(b.messages) == 0 {
 		return true
 	}
 	for attempt := 0; ; attempt++ {
-		wctx, cancel := context.WithTimeout(ctx, s.ingestWriteTimeout)
+		wctx, cancel := context.WithTimeout(writeCtx, s.ingestWriteTimeout)
 		err := s.writeBatch(wctx, db, b)
 		cancel()
 		if err == nil {
@@ -169,11 +177,9 @@ func (s *Service) writeWithRetry(ctx context.Context, db *gorm.DB, b ingestBatch
 	}
 }
 
-// flush 在 flushTimeout 内写完 pending 与队列中剩余的记录，不重试；超时放弃剩余并记 Warn。
-func (s *Service) flush(ctx context.Context, db *gorm.DB, pending ingestBatch) {
-	// ctx 已被 Stop 取消，去掉取消信号后以 flushTimeout 为上界。
-	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.flushTimeout)
-	defer cancel()
+// flush 在 fctx 到期（writeLoop 的 writeCtx：Stop 后 flushTimeout）前写完 pending 与队列中剩余的记录，不重试；
+// 到期放弃剩余并记 Warn。
+func (s *Service) flush(fctx context.Context, db *gorm.DB, pending ingestBatch) {
 	b := pending
 	for {
 		if len(b.messages) > 0 {

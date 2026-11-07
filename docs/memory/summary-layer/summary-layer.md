@@ -353,7 +353,7 @@ type ConvDay struct {
   2. upsert 本批涉及的会话，冲突时只更新两列：`name = COALESCE(NULLIF(EXCLUDED.name, ''), mem_conversation.name)`（不让没带名字的记录清空群名），`last_msg_at = GREATEST(mem_conversation.last_msg_at, EXCLUDED.last_msg_at)`。
   3. 逐条 `Clauses(clause.OnConflict{DoNothing: true}).Create(&msg)`，`RowsAffected == 0` 计为重复。逐条插入是为了拿到准确 ID 与重复计数。
   4. 按 `(conv_key, local_date)` 汇总，upsert `mem_conv_day`：`msg_count + n`，`last_msg_id = GREATEST(...)`。
-- 重试：失败后再试 2 次，退避 1s、2s（同时监听 stop 与 ctx）；最终失败时 `FailedBatches + 1`，丢弃本批。写入按去重键幂等，重试安全。不做落盘缓冲。写入中途被 `Stop` 打断的批次交给 flush 再写一次。
+- 重试：失败后再试 2 次，退避 1s、2s（同时监听 stop 与 ctx）；最终失败时 `FailedBatches + 1`，丢弃本批。写入按去重键幂等，重试安全。不做落盘缓冲。`Stop` 不立即打断正在写的批次：单次写入用去掉取消信号的插件级 ctx，在 `Stop` 后再过 `flushTimeout` 才取消，与随后的 flush 共用这一时限（立即打断时，服务端可能已提交而客户端报错，重写会把整批记成重复）；到期仍未写完的批次交给 flush 再写一次。
 
 *连库、迁移与停止*
 
@@ -372,7 +372,7 @@ type ConvDay struct {
   ```
 
 - `store.NewLogger` 实现 `gorm.io/gorm/logger.Interface`：`Trace` 只在出错（`ErrRecordNotFound` 与 `context.Canceled` 除外）或耗时 > 1s 时记 `Warn`，字段 `operation=memory_sql`、`duration_ms`、`rows`、`err`；**不输出 SQL 文本与参数**。
-- `Stop`（幂等）：数据库从未就绪而队列中仍有记录时，记 `Warn`：`operation=memory_stop dropped=<n>`。关闭准入并取消后台协程的 ctx → 写循环在 `flushTimeout` 内非阻塞排空队列并按批写入（ctx 为去掉取消信号的插件级 ctx 加 `flushTimeout`；不再重试，超时放弃剩余并记 `Warn`）→ 关闭连接池。连库或迁移阶段的协程随 ctx 取消直接退出。
+- `Stop`（幂等）：数据库从未就绪而队列中仍有记录时，记 `Warn`：`operation=memory_stop dropped=<n>`。关闭准入并取消后台协程的 ctx → 写循环在 `flushTimeout` 内非阻塞排空队列并按批写入（与正在写的批次共用同一 ctx：去掉取消信号的插件级 ctx，`Stop` 后 `flushTimeout` 到期取消；不再重试，到期放弃剩余并记 `Warn`）→ 关闭连接池。连库或迁移阶段的协程随 ctx 取消直接退出。
 
 *常量*：`ingestWriteTimeout = 5s`，`flushTimeout = 2s`，`migrateTimeout = 30s`。
 
