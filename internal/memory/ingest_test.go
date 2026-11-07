@@ -42,7 +42,7 @@ func testConfig(t *testing.T, dsn string) Config {
 // startService 启动 Service 并等待就绪，测试结束时停止。tweak 在 Start 之前调整配置与注入缝。
 func startService(t *testing.T, cfg Config, tweak func(*Service)) *Service {
 	t.Helper()
-	s := New(cfg, discardLogger())
+	s := New(cfg, discardLogger(), nil)
 	if tweak != nil {
 		tweak(s)
 	}
@@ -314,7 +314,7 @@ func TestIngestPartialBatchAfterInterval(t *testing.T) {
 }
 
 func TestEnqueueQueueFull(t *testing.T) {
-	s := New(Config{QueueSize: 2, IngestBatch: 10, IngestInterval: time.Second}, discardLogger())
+	s := New(Config{QueueSize: 2, IngestBatch: 10, IngestInterval: time.Second}, discardLogger(), nil)
 	for i := range 2 {
 		if !s.Enqueue(groupRecord(fmt.Sprintf("m%d", i))) {
 			t.Fatalf("第 %d 条应入队成功", i+1)

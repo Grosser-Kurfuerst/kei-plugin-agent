@@ -352,7 +352,7 @@ func loadConfig(c *bot.Config) (*config, error) {
 	}
 	cfg.randomTimezone = loc
 
-	if cfg.memory, err = readMemoryConfig(r); err != nil {
+	if cfg.memory, err = readMemoryConfig(r, cfg); err != nil {
 		return nil, err
 	}
 	cfg.memory.Location = loc
@@ -360,7 +360,7 @@ func loadConfig(c *bot.Config) (*config, error) {
 }
 
 // readMemoryConfig 读取并校验 memory_* 键（Location 由调用方填）。
-func readMemoryConfig(r cfgReader) (memory.Config, error) {
+func readMemoryConfig(r cfgReader, cfg *config) (memory.Config, error) {
 	m := memory.Config{
 		DatabaseDSN:          r.str("memory_database_dsn", ""),
 		IngestInterval:       r.dur("memory_ingest_interval", 5*time.Second),
@@ -412,6 +412,41 @@ func readMemoryConfig(r cfgReader) (memory.Config, error) {
 		if err = needMinInt(item.key, *item.dst, 1); err != nil {
 			return m, err
 		}
+	}
+	m.LLMBaseURL = r.str("memory_llm_base_url", "")
+	inherited := m.LLMBaseURL == ""
+	if inherited {
+		m.LLMBaseURL = cfg.llmBaseURL
+		m.LLMAPIKey = cfg.llmAPIKey
+		m.LLMHeaders = cfg.llmExtraHeaders
+	}
+	if _, ok := r.c.Get("memory_llm_api_key"); ok {
+		m.LLMAPIKey = r.str("memory_llm_api_key", "")
+	}
+	if raw, ok := r.c.Get("memory_llm_extra_headers"); ok {
+		m.LLMHeaders = map[string]string{}
+		if values, ok := asStringMap(raw); ok {
+			for k, v := range values {
+				m.LLMHeaders[k] = strOf(v)
+			}
+		}
+	}
+	m.LLMModelSmall = r.str("memory_llm_model_small", "")
+	if m.LLMModelSmall == "" {
+		m.LLMModelSmall = cfg.llmModel
+	}
+	m.LLMModelLarge = r.str("memory_llm_model_large", "")
+	if m.LLMModelLarge == "" {
+		m.LLMModelLarge = m.LLMModelSmall
+	}
+	m.LLMTimeout = r.dur("memory_llm_timeout", 120*time.Second)
+	m.LLMJSONMode = r.boolean("memory_llm_json_mode", true)
+	u, parseErr := url.Parse(m.LLMBaseURL)
+	if parseErr != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return m, cfgErr("memory_llm_base_url", "", "必须是带 host 的 http(s) URL")
+	}
+	if m.LLMTimeout <= 0 {
+		return m, cfgErr("memory_llm_timeout", m.LLMTimeout.String(), "必须 > 0")
 	}
 	return m, nil
 }

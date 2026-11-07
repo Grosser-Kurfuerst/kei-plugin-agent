@@ -56,7 +56,7 @@ func TestStartUnreachableDSN(t *testing.T) {
 		QueueSize:      10,
 		IngestBatch:    5,
 		IngestInterval: time.Second,
-	}, slog.New(logs))
+	}, slog.New(logs), nil)
 	s.connectBackoffMin = 10 * time.Millisecond
 
 	begin := time.Now()
@@ -99,7 +99,7 @@ func TestStartUnreachableDSN(t *testing.T) {
 }
 
 func TestStopWithoutStart(t *testing.T) {
-	s := New(Config{QueueSize: 1, IngestBatch: 1, IngestInterval: time.Second}, discardLogger())
+	s := New(Config{QueueSize: 1, IngestBatch: 1, IngestInterval: time.Second}, discardLogger(), nil)
 	s.Stop(t.Context())
 	if got := s.Stats().State; got != StateStopped {
 		t.Fatalf("State = %q, want %q", got, StateStopped)

@@ -308,9 +308,11 @@ kei-plugin-persona/
 │   ├── convkey.go   conv_key 与去重键推导
 │   ├── memory.go    Config、Service、Start/Stop/Stats、连库与迁移状态机
 │   ├── cleanup.go   过期清理、任务调度与 worker 生命周期
+│   ├── summary/     切片、预过滤、提示词、来源校验、话题合并与日摘要流水线
+│   ├── llm/         后台 JSON 客户端，复用宿主 Transport
 │   ├── jobs/        持久化队列、调度与 worker 池
 │   ├── ingest.go    Enqueue、写协程、批量事务写入与停止前 flush
-│   ├── store/       GORM 模型（mem_conversation / mem_message / mem_conv_day）、LocalDate、迁移、gorm 日志适配
+│   ├── store/       GORM 模型（mem_conversation / mem_message / mem_conv_day / mem_job / mem_summary / mem_topic）、LocalDate、迁移、gorm 日志适配
 │   └── memtest/     测试用：按测试建独立 schema（NewDB）
 ├── cmd/devhost/     本地联调宿主（独立 Go 模块，不属于插件本体，见 testing.md §11.5）
 │   ├── go.mod       module …/cmd/devhost（replace 本仓库与同级 kei）

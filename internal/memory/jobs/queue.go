@@ -40,6 +40,14 @@ func (q Queue) Claim(ctx context.Context, now time.Time) (job store.Job, err err
 
 // Finish 写入本次结果，并按尝试次数决定退避或终止。
 func (q Queue) Finish(ctx context.Context, job store.Job, result store.JobResult, runErr error, now time.Time) error {
+	result.Days += job.Result.Days
+	result.FailedDays += job.Result.FailedDays
+	result.PromptTokens += job.Result.PromptTokens
+	result.CompletionTokens += job.Result.CompletionTokens
+	result.Slices += job.Result.Slices
+	result.DroppedSlices += job.Result.DroppedSlices
+	result.FailedSlices += job.Result.FailedSlices
+	result.MergeFallbacks += job.Result.MergeFallbacks
 	job.Result = result
 	job.Status = "done"
 	job.LastError = ""

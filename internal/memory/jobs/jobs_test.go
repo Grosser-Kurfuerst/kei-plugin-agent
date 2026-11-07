@@ -253,3 +253,62 @@ func TestFinishRetryDoesNotRepeatHandler(t *testing.T) {
 		t.Fatalf("calls=%d writes=%d", calls.Load(), writes.Load())
 	}
 }
+
+func TestDailyScheduling(t *testing.T) {
+	q := testQueue(t)
+	now := time.Date(2026, 11, 8, 5, 0, 0, 0, time.UTC)
+	checkpoint := int64(1)
+	for _, day := range []store.ConvDay{
+		{ConvKey: "pending", LocalDate: now.AddDate(0, 0, -1), MsgCount: 4},
+		{ConvKey: "pending", LocalDate: now.AddDate(0, 0, -2), MsgCount: 4},
+		{ConvKey: "done", LocalDate: now.AddDate(0, 0, -1), MsgCount: 4, SummarizedUptoID: &checkpoint},
+		{ConvKey: "old", LocalDate: now.AddDate(0, 0, -8), MsgCount: 4},
+	} {
+		if err := q.DB.WithContext(t.Context()).Create(&day).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := Scheduler{Queue: q, Location: time.UTC, DailyAt: "04:00"}
+	for range 2 {
+		if _, err := s.Tick(t.Context(), now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var jobs []store.Job
+	if err := q.DB.WithContext(t.Context()).Where("type='daily_summary'").Find(&jobs).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 1 || jobs[0].Payload.ConvKey != "pending" {
+		t.Fatalf("jobs=%+v", jobs)
+	}
+}
+
+func TestRetryUsageAccumulates(t *testing.T) {
+	q := testQueue(t)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	if err := q.Create(ctx, store.Job{Type: "daily_summary", DedupeKey: "usage", Status: "pending", RunAfter: now}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := q.Claim(ctx, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = q.Finish(ctx, first, store.JobResult{PromptTokens: 5, CompletionTokens: 2, FailedSlices: 1}, errors.New("retry"), now); err != nil {
+		t.Fatal(err)
+	}
+	second, err := q.Claim(ctx, now.Add(3*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = q.Finish(ctx, second, store.JobResult{PromptTokens: 7, CompletionTokens: 3, Days: 1}, nil, now.Add(3*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	var saved store.Job
+	if err = q.DB.WithContext(ctx).First(&saved, second.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if saved.Result.PromptTokens != 12 || saved.Result.CompletionTokens != 5 || saved.Result.FailedSlices != 1 || saved.Status != "done" {
+		t.Fatalf("累计结果 %+v", saved)
+	}
+}

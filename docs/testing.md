@@ -38,6 +38,14 @@ PERSONA_MEMORY_HOST_BINARY=/tmp/persona-memory-devhost go test ./internal/memory
 
 该测试同时需要 `PERSONA_MEMORY_TEST_DSN`；普通质量门不设置宿主变量时跳过这项分钟级验收。
 
+S4 真实数据与真实 LLM 运行验收：设置 `PERSONA_MEMORY_TEST_DSN`（只读其中已采集消息；测试写入独立 schema）、`PERSONA_MEMORY_RUNTIME_LLM_BASE_URL`、`PERSONA_MEMORY_RUNTIME_LLM_API_KEY`、`PERSONA_MEMORY_RUNTIME_LLM_MODEL`，可选 `PERSONA_MEMORY_RUNTIME_LLM_HEADERS`（JSON 对象），运行：
+
+```bash
+go test ./internal/memory/summary -run TestRuntimeDailySummary -v -count=1
+```
+
+测试把一个真实会话日回放为待摘要日期，不改源库；输出生成结果及来源归属校验，供人工抽读。这是运行抽验，S7 的 20 日正式评测另行执行。
+
 ## 11.2 单元测试矩阵
 
 ```text
@@ -45,6 +53,8 @@ PERSONA_MEMORY_HOST_BINARY=/tmp/persona-memory-devhost go test ./internal/memory
 ```
 
 | 用例 | 断言 |
+| S4 LLM 客户端 | 凭据及 JSON 模式、宿主超时隔离、网络退避、结构修复与 token 统计 |
+| S4 日摘要 | 切片与预过滤、来源及归属校验、确定性合并、跨天延续、失败日期重试、幂等覆盖与空结果清理 |
 | --- | --- |
 | 无发送者 | 决策结果 `reason=no_sender` |
 | 非群聊（群 Handler 收到 `Kind=private`） | 决策结果 `reason=not_group` |

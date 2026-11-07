@@ -86,10 +86,68 @@ func (Job) TableName() string { return "mem_job" }
 
 // JobPayload 是任务参数。
 type JobPayload struct {
-	Date string `json:"date,omitempty"`
+	ConvKey string `json:"conv_key,omitempty"`
+	Date    string `json:"date,omitempty"`
 }
 
 // JobResult 记录任务执行结果，失败时同样保存。
 type JobResult struct {
-	Deleted map[string]int64 `json:"deleted,omitempty"`
+	Days             int              `json:"days,omitempty"`
+	FailedDays       int              `json:"failed_days,omitempty"`
+	PromptTokens     int64            `json:"prompt_tokens,omitempty"`
+	CompletionTokens int64            `json:"completion_tokens,omitempty"`
+	Slices           int              `json:"slices,omitempty"`
+	DroppedSlices    int              `json:"dropped_slices,omitempty"`
+	FailedSlices     int              `json:"failed_slices,omitempty"`
+	MergeFallbacks   int              `json:"merge_fallbacks,omitempty"`
+	Deleted          map[string]int64 `json:"deleted,omitempty"`
+}
+
+// Summary 是一个会话在某天的日摘要；话题随摘要级联删除。
+type Summary struct {
+	ID                 int64 `gorm:"primaryKey"`
+	ConvKey            string
+	ScopeType          string
+	LocalDate          time.Time `gorm:"type:date"`
+	Kind               string
+	Version            int
+	Overview           string
+	FromMsgID, ToMsgID int64
+	MsgCount           int
+	Model              string
+	CreatedAt          time.Time
+	Topics             []Topic `gorm:"constraint:OnDelete:CASCADE"`
+}
+
+// TableName 返回表名。
+func (Summary) TableName() string { return "mem_summary" }
+
+// Topic 是带来源与跨天稳定键的话题。
+type Topic struct {
+	ID                    int64 `gorm:"primaryKey"`
+	SummaryID             int64
+	ConvKey               string
+	LocalDate             time.Time `gorm:"type:date"`
+	TopicKey              string
+	ContinuesFrom         string
+	Title, Summary        string
+	Participants          []string   `gorm:"type:jsonb;serializer:json"`
+	KeyPoints             []KeyPoint `gorm:"type:jsonb;serializer:json"`
+	Entities              []string   `gorm:"type:jsonb;serializer:json"`
+	Importance            float64
+	HasOpen               bool
+	FirstMsgID, LastMsgID int64
+	FirstAt, LastAt       time.Time
+}
+
+// TableName 返回表名。
+func (Topic) TableName() string { return "mem_topic" }
+
+// KeyPoint 是带说话人与消息引用的要点。
+type KeyPoint struct {
+	Type    string   `json:"type"`
+	Text    string   `json:"text"`
+	Speaker string   `json:"speaker"`
+	Owner   string   `json:"owner,omitempty"`
+	MsgIDs  []string `json:"msg_ids"`
 }

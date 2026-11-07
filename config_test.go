@@ -355,3 +355,45 @@ func TestDisabledMemoryIgnoresSchedulingConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMemoryLLMFallback(t *testing.T) {
+	for _, endpoint := range []string{"", "http://other/v1"} {
+		c := baseConfigMap("http://main/v1")
+		c["memory_database_dsn"] = "test"
+		c["llm_extra_headers"] = map[string]any{"X-Test": "main"}
+		c["memory_llm_base_url"] = endpoint
+		cfg, err := loadConfig(bot.NewConfig(c))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.memory.LLMTimeout != 120*time.Second || cfg.memory.LLMModelSmall != cfg.llmModel || cfg.memory.LLMModelLarge != cfg.llmModel {
+			t.Fatal("模型或超时回落错误")
+		}
+		if endpoint == "" {
+			if cfg.memory.LLMAPIKey != cfg.llmAPIKey || cfg.memory.LLMHeaders["X-Test"] != "main" {
+				t.Fatal("未继承主端点凭据")
+			}
+		} else if cfg.memory.LLMAPIKey != "" || len(cfg.memory.LLMHeaders) != 0 {
+			t.Fatal("凭据跨端点继承")
+		}
+		c["memory_llm_api_key"] = "explicit"
+		c["memory_llm_extra_headers"] = map[string]any{"X-Test": "explicit"}
+		c["memory_llm_model_small"] = "s"
+		cfg, err = loadConfig(bot.NewConfig(c))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.memory.LLMAPIKey != "explicit" || cfg.memory.LLMHeaders["X-Test"] != "explicit" || cfg.memory.LLMModelLarge != "s" {
+			t.Fatal("显式值未生效")
+		}
+	}
+	for _, tc := range []struct{ key, value, reason string }{{"memory_llm_base_url", "bad", "必须是带 host 的 http(s) URL"}, {"memory_llm_timeout", "0s", "必须 > 0"}} {
+		c := baseConfigMap("http://main")
+		c["memory_database_dsn"] = "test"
+		c[tc.key] = tc.value
+		_, err := loadConfig(bot.NewConfig(c))
+		if err == nil || !strings.Contains(err.Error(), tc.reason) {
+			t.Fatalf("err=%v", err)
+		}
+	}
+}

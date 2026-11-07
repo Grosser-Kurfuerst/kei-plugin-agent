@@ -4,6 +4,7 @@ package memory
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,22 +29,27 @@ const (
 
 // Config 是记忆子系统的配置，由根包从 memory_* 键组装并校验（数值均为正数）。
 type Config struct {
-	DailyAt              string
-	MessageRetentionDays int
-	SummaryRetentionDays int
-	DatabaseDSN          string
-	MaxOpenConns         int
-	Location             *time.Location // 取自 random_timezone
-	QueueSize            int
-	IngestBatch          int
-	IngestInterval       time.Duration
+	LLMBaseURL, LLMAPIKey, LLMModelSmall, LLMModelLarge string
+	LLMHeaders                                          map[string]string
+	LLMTimeout                                          time.Duration
+	LLMJSONMode                                         bool
+	DailyAt                                             string
+	MessageRetentionDays                                int
+	SummaryRetentionDays                                int
+	DatabaseDSN                                         string
+	MaxOpenConns                                        int
+	Location                                            *time.Location // 取自 random_timezone
+	QueueSize                                           int
+	IngestBatch                                         int
+	IngestInterval                                      time.Duration
 }
 
 // Service 是记忆子系统的入口：后台连库、迁移，并批量写入入队的原始消息。
 type Service struct {
-	cfg   Config
-	log   *slog.Logger
-	queue chan Record
+	cfg        Config
+	log        *slog.Logger
+	queue      chan Record
+	httpClient *http.Client
 
 	// 注入缝：New 填默认值，同包测试可改小。
 	tickInterval       time.Duration
@@ -77,7 +83,7 @@ type Service struct {
 }
 
 // New 创建 Service；不连库，连库在 Start 后进行。
-func New(cfg Config, log *slog.Logger) *Service {
+func New(cfg Config, log *slog.Logger, httpClient *http.Client) *Service {
 	if cfg.DailyAt == "" {
 		cfg.DailyAt = "04:00"
 	}
@@ -98,6 +104,7 @@ func New(cfg Config, log *slog.Logger) *Service {
 		cfg:                cfg,
 		log:                log,
 		queue:              make(chan Record, cfg.QueueSize),
+		httpClient:         httpClient,
 		now:                time.Now,
 		ingestWriteTimeout: ingestWriteTimeout,
 		flushTimeout:       flushTimeout,

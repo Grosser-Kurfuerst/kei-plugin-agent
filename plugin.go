@@ -124,7 +124,7 @@ func (p *Plugin) setup(pc bot.PluginContext, reg bot.Registrar) error {
 		p.mcp = newMCPClient(cfg, pc.HTTPClient)
 	}
 	if cfg.memory.DatabaseDSN != "" {
-		p.mem = memory.New(cfg.memory, log)
+		p.mem = memory.New(cfg.memory, log, pc.HTTPClient)
 	}
 
 	reg.OnEvent(bot.EventMessage, p.handleGroupMessage,
