@@ -118,7 +118,7 @@ worker 领取任务（FOR UPDATE SKIP LOCKED）
 
 | 方法 | 作用 | 引入阶段 |
 | --- | --- | --- |
-| `New(cfg Config, log *slog.Logger) *Service` | 只保存依赖，不连库、不联网；S4 追加参数 `httpClient *http.Client`（LLM 客户端用） | S1 |
+| `New(cfg Config, log *slog.Logger) *Service` | 只保存依赖，不连库、不联网；S4 追加参数 `httpClient *http.Client`（LLM 客户端只取其 `Transport`，见 §16.3.6） | S1 |
 | `Start(ctx)` | 立即返回；连库、迁移与后台协程在插件级 ctx 派生的协程中进行 | S1 |
 | `Stop(ctx)` | 关闭准入 → flush 队列 → 停止后台协程 → 关闭连接池；有界、幂等 | S1 |
 | `Enqueue(r Record) bool` | 非阻塞入队；队列满或已停止时返回 false | S1 |
@@ -157,7 +157,7 @@ worker 领取任务（FOR UPDATE SKIP LOCKED）
 | `memory_ingest_batch`、`memory_ingest_interval`、`memory_queue_size` | `50`、`5s`、`2048` | S2 |
 | `memory_daily_at` | `04:00` | S3 |
 | `memory_message_retention_days`、`memory_summary_retention_days` | `60`、`90` | S3 |
-| `memory_llm_base_url`、`memory_llm_api_key`、`memory_llm_model_small`、`memory_llm_model_large`、`memory_llm_timeout`、`memory_llm_json_mode` | 回落 `llm_*`、`60s`、`true` | S4 |
+| `memory_llm_base_url`、`memory_llm_api_key`、`memory_llm_extra_headers`、`memory_llm_model_small`、`memory_llm_model_large`、`memory_llm_timeout`、`memory_llm_json_mode` | 回落 `llm_*`（规则见 §16.3.6）、`120s`、`true` | S4 |
 | `memory_context_timeout`、`memory_context_max_chars` | `1500ms`、`1200` | S5 |
 | `memory_tools_enabled` | `false` | S6 |
 
@@ -559,7 +559,7 @@ err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 
 - `SKIP LOCKED` 让进程内的多个 worker 互不阻塞、不重复领取；插件单实例运行（§16.2.5），不做跨进程互斥。
 - 建任务一律 `OnConflict{DoNothing: true}`，按 `dedupe_key` 去重。
-- 成功：`status='done'`，写 `result`。失败：`attempts < jobMaxAttempts` 时退回 `pending`、`run_after = now + min(2^attempts 分钟, 60 分钟)`、记 `last_error`；否则 `dead`，记 `Error`：`operation=memory_job job_id=… job_type=… attempts=… err=…`。
+- 成功：`status='done'`，写 `result`。失败时同样写入 Handler 返回的 `result`（S4 起含失败尝试已消耗的 token），并且：`attempts < jobMaxAttempts` 时退回 `pending`、`run_after = now + min(2^attempts 分钟, 60 分钟)`、记 `last_error`；否则 `dead`，记 `Error`：`operation=memory_job job_id=… job_type=… attempts=… err=…`。
 - 启动时重置：迁移完成后、启动 worker 之前执行一次 `UPDATE mem_job SET status='pending', run_after=now() WHERE status='running'`。单实例下此时不可能有任务真正在执行，`running` 都是上次进程停止或崩溃时中断的。`attempts` 不回退，中断也算一次尝试。
 - `dead` 不自动重跑，排查后用 SQL 重新入队（不为此提供命令）：`UPDATE mem_job SET status='pending', attempts=0, run_after=now() WHERE status='dead';`
 
@@ -605,7 +605,7 @@ type Handler func(ctx context.Context, job store.Job) (store.JobResult, error)
 
 | 测试位置 | 必须观察到的结果 |
 | --- | --- |
-| `jobs/queue_test.go` | 同一 `dedupe_key` 只建一个；两个协程并发领取拿到不同任务；退避时间正确；第 5 次失败变 `dead`；启动重置把 `running` 改回 `pending` 且不改 `attempts` |
+| `jobs/queue_test.go` | 同一 `dedupe_key` 只建一个；两个协程并发领取拿到不同任务；退避时间正确；失败时 `result` 同样写入；第 5 次失败变 `dead`；启动重置把 `running` 改回 `pending` 且不改 `attempts` |
 | `jobs/scheduler_test.go` | `DailyAt` 之前不建 `cleanup`、之后建一次，同一天多次 tick 仍只有一个；计数被刷新 |
 | `jobs/worker_test.go` | 按类型分发；未知类型失败；Handler 超过 `jobTimeout`（测试调小）时收到 ctx 取消并按失败退避；`Stop` 时 Handler 收到 ctx 取消，`Stop` 在 `workerStopTimeout` 内返回，任务留在 `running` |
 | `memory_test.go`（库） | 上次遗留的 `running` 任务在 `Start` 就绪后被重置并重新执行 |
@@ -631,7 +631,7 @@ type Handler func(ctx context.Context, job store.Job) (store.JobResult, error)
 | `internal/memory/summary/schema.go` | 输出结构体、校验与规范化、ID 回填、敏感信息替换 |
 | `internal/memory/summary/pipeline.go` | `daily_summary` Handler；合并、兜底与事务写入 |
 | `internal/memory/cleanup.go` | 追加删除过期摘要 |
-| `internal/memory/memory.go` | `New` 增加参数 `httpClient *http.Client`（根包传 `pc.HTTPClient`）；`Config` 增加 `LLMBaseURL`、`LLMAPIKey`、`LLMModelSmall`、`LLMModelLarge`、`LLMTimeout`、`LLMJSONMode`；注册 Handler |
+| `internal/memory/memory.go` | `New` 增加参数 `httpClient *http.Client`（根包传 `pc.HTTPClient`）；`Config` 增加 `LLMBaseURL`、`LLMAPIKey`、`LLMHeaders`、`LLMModelSmall`、`LLMModelLarge`、`LLMTimeout`、`LLMJSONMode`；注册 Handler |
 | [`config.go`](../../../config.go) | `memory_llm_*` |
 
 编码顺序：纯逻辑（切片、预过滤、校验、确定性合并）→ LLM 客户端 → 提示词 → 流水线与写入 → 调度建任务。
@@ -652,7 +652,7 @@ type Summary struct {
 	FromMsgID int64
 	ToMsgID   int64
 	MsgCount  int
-	Model     string
+	Model     string // 合并所用的大模型；跳过合并或兜底时为小模型
 	CreatedAt time.Time
 	Topics    []Topic `gorm:"constraint:OnDelete:CASCADE"`
 }
@@ -697,12 +697,35 @@ CREATE INDEX IF NOT EXISTS idx_mem_topic_key ON mem_topic (conv_key, topic_key);
 
 `mem_topic` 不建向量列；M3 需要时由其迁移追加。
 
-*LLM 客户端*（`llm/chat.go`，HTTP 客户端取自 `New` 的参数）
+*LLM 客户端*（`llm/chat.go`）
 
-- `POST <LLMBaseURL>/chat/completions`；`LLMAPIKey` 非空时带 `Authorization: Bearer`。请求体 `model`、`messages`、`temperature`；`LLMJSONMode` 时加 `response_format: {"type":"json_object"}`。单次超时 `LLMTimeout`。
+- HTTP 客户端：`&http.Client{Transport: httpClient.Transport}`，`httpClient` 即 `New` 收到的 `pc.HTTPClient`。只复用宿主的 transport（代理、TLS、连接池），不设 `Client.Timeout`：宿主客户端自带 15s 硬上限，会让 `LLMTimeout` 失效。`Transport` 为 nil 时 Go 自动用 `DefaultTransport`。
+- `POST <LLMBaseURL>/chat/completions`；`LLMAPIKey` 非空时带 `Authorization: Bearer`，再叠加 `LLMHeaders`（后叠加，可覆盖 `Authorization`，与 [`../../llm.md`](../../llm.md) §9.1 一致）。请求体 `model`、`messages`、`temperature`；`LLMJSONMode` 时加 `response_format: {"type":"json_object"}`。单次超时 `LLMTimeout`，由 ctx 控制。日志只记请求头名，不记值。
 - 超时、网络错误、`429`、`5xx` 在 2s 后重试 1 次；其余 4xx 不重试。
-- 解析 `choices[0].message.content` 与 `usage`，用量累加进 `JobResult`。
-- `ChatJSON(ctx, model, system, user string, out any) error`：解码失败或校验不通过时，追加一条 user 消息「上次输出不合规：<原因>。请只输出符合要求的 JSON。」再请求 1 次，仍失败返回错误。与网络重试相互独立。
+- 解析 `choices[0].message.content` 与 `usage`。
+
+```go
+// Request 是一次要求 JSON 输出的对话请求。
+type Request struct {
+	Model       string
+	System      string
+	User        string
+	Temperature float64
+}
+
+// Usage 是 token 用量。
+type Usage struct{ PromptTokens, CompletionTokens int64 }
+
+// Validator 由输出结构体实现；返回错误表示需要让模型修复后重发。
+type Validator interface{ Validate() error }
+
+// ChatJSON 返回全部尝试（含网络重试与修复请求）累计的用量，失败时也返回。
+func (c *Client) ChatJSON(ctx context.Context, req Request, out Validator) (Usage, error)
+```
+
+- 解码失败或 `out.Validate()` 报错时，追加一条 user 消息「上次输出不合规：<原因>。请只输出符合要求的 JSON。」再请求 1 次，仍失败返回错误。与网络重试相互独立。
+- `Validate` 只检查结构性错误：顶层 `topics` 字段缺失或为 `null`（空数组合法）。截断、删除非法引用、截取重要性等由 `schema.go` 在之后静默规范化，不触发修复请求。
+- 流水线把返回的 `Usage` 累加进 `JobResult`，失败的调用也计入。
 
 *调度：建日摘要任务*（追加到 S3 调度 tick 中）
 
@@ -759,7 +782,7 @@ CREATE INDEX IF NOT EXISTS idx_mem_topic_key ON mem_topic (conv_key, topic_key);
 
 | 规则 | 不满足时 |
 | --- | --- |
-| 可解析且符合结构 | 修复重试一次；仍失败该切片记为失败 |
+| 可解析且有 `topics` 字段（`Validate`） | 修复重试一次；仍失败该切片记为失败 |
 | 每切片 ≤ 6 个话题；字符串长度上限如上 | 截断 |
 | `participants` ⊆ 已知 `u` 代号且不含 `bot` | 删除非法项 |
 | `refs` ⊆ 本切片 `#n` | 删除非法项；删空的 key point 丢弃 |
@@ -772,7 +795,9 @@ CREATE INDEX IF NOT EXISTS idx_mem_topic_key ON mem_topic (conv_key, topic_key);
 
 单个切片失败计入 `result.failed_slices`；全部失败时该天失败。
 
-*合并与延续判断*（大模型）
+切片话题的消息与时间范围取**整个切片**（含重叠上下文）的首末消息，不取 `refs`：没有要点的话题也有范围；范围偏宽只会让 S6 的短期窗口去重少跳过一些，不会误丢话题。`refs` 只用于生成要点的 `msg_ids`。
+
+*合并与延续判断*（大模型，温度 0.2）
 
 - 输入：当日全部切片话题，编号 `s1…`，要点编号 `s1.0`…；前 `windowDays` 天的日摘要话题，编号 `k1…`，按 `local_date DESC, importance DESC` 取前 30 个，每个含 topic_key、日期、标题与一句话摘要（`summary` 第一个 `。！？!?；` 之前的部分，≤ 40 rune；S5 的简短行用同一函数）。
 - 输出：
@@ -784,6 +809,21 @@ CREATE INDEX IF NOT EXISTS idx_mem_topic_key ON mem_topic (conv_key, topic_key);
   ```
 
   只按编号**选择和去重** key point，不改写原文，切片阶段校验过的归属原样保留。
+- 输出校验与规范化（只有第一行触发修复重试，其余静默处理）：
+
+  | 规则 | 不满足时 |
+  | --- | --- |
+  | 可解析且有 `topics` 字段（`Validate`） | 修复重试一次；仍失败走兜底 |
+  | `from` 中是已知 `s` 编号 | 删除非法项；删空则丢弃该话题 |
+  | 每个 `s` 至多出现在一个话题中 | 按输出顺序保留在第一个出现的话题，后面的删除 |
+  | `key_points` 编号存在，且所属 `s` 在本话题的 `from` 中 | 删除非法项 |
+  | `key_points` 不重复 | 去重 |
+  | 标题 ≤ 20、摘要 ≤ 120、`overview` ≤ 60 rune | 截断 |
+  | 标题或摘要为空 | 取来源中重要性最高的切片话题的对应值 |
+  | `overview` 为空 | 取重要性最高 3 个标题以 `；` 连接（同兜底） |
+  | `importance` 缺失或越界 | 缺失取来源最大值，越界截取到 [0,1] |
+  | 同一天多个话题 `continues` 同一个 `k` | 只保留第一个的延续，后面的置空（否则同一天出现重复 `topic_key`） |
+
 - 程序侧规则：
   - 每个 `s` 至多归入一个合并话题；遗漏的 `s` 若 `importance ≥ 0.3` 单独成题，否则丢弃。
   - `continues` 必须是给出的 `k` 编号，否则置空。
@@ -795,26 +835,40 @@ CREATE INDEX IF NOT EXISTS idx_mem_topic_key ON mem_topic (conv_key, topic_key);
 
 *写入*
 
+写入前，对最终的标题、摘要、`overview`（含兜底生成的文本）再做一次与切片阶段相同的敏感信息替换。替换幂等，所有路径收在这一处兜底。
+
 一个事务内：锁住 `(conv, D)` 的 `mem_conv_day` 行 → 删除已有的 `(conv, D, daily)` 摘要（话题级联），插入新摘要（`version + 1`）及话题 → 设置 `summarized_upto_id`。整条流水线可重跑，结果覆盖旧值。
+
+当天无切片（预过滤全部丢弃）或无话题（切片小结均返回空数组）不算失败：不写摘要，只设置 `summarized_upto_id`；已有旧日摘要时同样删除，保证重跑结果一致。读取侧因此天然查不到这一天。
 
 *其他*
 
 - `cleanup` 追加：删除 `local_date` 早于 `SummaryRetentionDays` 天的摘要（话题级联）。
-- `JobPayload` 追加 `ConvKey`；`JobResult` 追加 `days`、`failed_days`、`prompt_tokens`、`completion_tokens`、`slices`、`dropped_slices`、`failed_slices`、`merge_fallbacks`（任务内各天累加），按任务完成日期汇总即为成本。
+- `JobPayload` 追加 `ConvKey`；`JobResult` 追加 `days`、`failed_days`、`prompt_tokens`、`completion_tokens`、`slices`、`dropped_slices`、`failed_slices`、`merge_fallbacks`（任务内各天累加，失败的调用与失败的尝试也计入），按任务完成日期汇总即为成本。
 - 日志：LLM 超时或 5xx 记 `Warn`；输出不合规记 `Info`（带校验原因）；均带 `job_id`。
 
-*常量*：`sliceGapMinutes = 30`，`sliceMaxMsgs / sliceMaxChars = 200 / 8000`，`jobMaxSlices = 80`，`sliceConcurrency = 4`，`windowDays = 3`。
+*常量*：`sliceGapMinutes = 30`，`sliceMaxMsgs / sliceMaxChars = 200 / 8000`，`jobMaxSlices = 80`，`sliceConcurrency = 4`，`windowDays = 3`，`llmTemperature = 0.2`（切片小结与合并共用）。
 
 *配置*
 
 | 键 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
 | `memory_llm_base_url` | string | `""` | 后台 OpenAI 兼容端点；空时取 `llm_base_url` |
-| `memory_llm_api_key` | string | `""` | 空时取 `llm_api_key` |
+| `memory_llm_api_key` | string | `""` | 鉴权密钥；未配置时按下方回落规则 |
+| `memory_llm_extra_headers` | map[string]string | `{}` | 额外请求头（中继服务用）；未配置时按下方回落规则 |
 | `memory_llm_model_small` | string | `""` | 切片小结模型；空时取 `llm_model` |
 | `memory_llm_model_large` | string | `""` | 合并模型；空时取 small 的最终值 |
-| `memory_llm_timeout` | duration | `60s` | 单次请求超时 |
+| `memory_llm_timeout` | duration | `120s` | 单次请求超时 |
 | `memory_llm_json_mode` | bool | `true` | 是否带 `response_format` |
+
+回落规则：密钥与请求头绑定在端点上，跟着 `memory_llm_base_url` 一起回落，避免把主 LLM 的凭据发给另一个服务。
+
+| `memory_llm_base_url` | `memory_llm_api_key` / `memory_llm_extra_headers` 未配置时 |
+| --- | --- |
+| 为空（回落到 `llm_base_url`） | 继承 `llm_api_key` / `llm_extra_headers` |
+| 已配置（另一个端点） | 视为空，不继承 |
+
+显式配置的值始终生效。`memory_llm_extra_headers` 与 `llm_extra_headers` 一样不做额外校验。
 
 | 键 | 原因文案 |
 | --- | --- |
@@ -827,15 +881,15 @@ CREATE INDEX IF NOT EXISTS idx_mem_topic_key ON mem_topic (conv_key, topic_key);
 
 | 测试位置 | 必须观察到的结果 |
 | --- | --- |
-| `llm/chat_test.go` | 请求体与 `response_format` 正确；key 为空时不带鉴权头；`500` / `429` / 超时重试 1 次，`400` 不重试；`usage` 被解析；不合规输出触发修复请求且含原因，仍不合规返回错误 |
+| `llm/chat_test.go` | 请求体与 `response_format` 正确；key 为空时不带鉴权头；额外请求头后叠加、可覆盖 `Authorization`；传入带 `Timeout` 的客户端时只用其 transport，超过该 `Timeout` 的响应仍能在 `LLMTimeout` 内收到；`500` / `429` / 超时重试 1 次，`400` 不重试；`usage` 被解析，多次尝试的用量累计，失败时也返回；解码失败或 `Validate` 报错触发修复请求且含原因，仍不合规返回错误 |
 | `summary/slicing_test.go` | 间隔切分；超限拆分带 10 条重叠；超过 `jobMaxSlices` 时只保留前 `jobMaxSlices` 个并计入 `dropped_slices` |
 | `summary/prefilter_test.go` | 占位符、纯表情 / 标点、单字重复（含「？？？」）、语气词、复读折叠；低于阈值的切片被丢弃；机器人消息保留但不计入真人 |
-| `summary/schema_test.go` | 校验表逐条生效；ID 回填正确；三类敏感信息被替换 |
-| `summary/merge_test.go` | 要点原样保留；遗漏的 `s` 按阈值处理；非法 `continues` 置空；topic_key 继承与新建格式；重要性取值；省调用；兜底的 `overview` 与 `merge_fallbacks` |
-| `summary/pipeline_test.go`（库 + 桩） | 样例日生成 1 份日摘要并设置进度；重跑后只剩一份、`version+1`；一个任务按日期升序处理多天，后一天的合并输入含前一天的话题；某天全部切片失败时继续处理后面的日期、任务返回错误，重试只处理仍未摘要的日期 |
+| `summary/schema_test.go` | 校验表逐条生效；ID 回填正确；三类敏感信息被替换；切片话题的范围取整个切片 |
+| `summary/merge_test.go` | 合并校验表逐条生效（含重复 `s`、跨话题要点、重复 `continues`）；要点原样保留；遗漏的 `s` 按阈值处理；非法 `continues` 置空；topic_key 继承与新建格式；重要性取值；省调用；兜底的 `overview` 与 `merge_fallbacks` |
+| `summary/pipeline_test.go`（库 + 桩） | 样例日生成 1 份日摘要并设置进度；当天无切片或无话题时不写摘要、只设置进度，已有旧日摘要被删除；合并输出含敏感信息时写入前被替换；重跑后只剩一份、`version+1`；一个任务按日期升序处理多天，后一天的合并输入含前一天的话题；某天全部切片失败时继续处理后面的日期、任务返回错误，重试只处理仍未摘要的日期 |
 | `store/migrate_test.go` | 摘要与话题表及索引被创建，在已有 S1–S3 表的库上重复迁移幂等 |
 | `jobs/*_test.go` | 只为窗口内有未摘要日期的会话建任务，每会话每天一个；已全部摘要的会话不建 |
-| 根包 `config_test.go` | LLM 键回落正确；校验文案逐字一致 |
+| 根包 `config_test.go` | LLM 键回落正确：`memory_llm_base_url` 为空时继承 `llm_api_key` 与 `llm_extra_headers`，已配置时不继承，显式值始终生效；`memory_llm_timeout` 默认 `120s`；校验文案逐字一致 |
 
 **运行验收**：用 S2 起采集的真实数据，配置真实 LLM，等 `memory_daily_at` 后：`mem_summary`、`mem_topic` 出现昨天的日摘要；`mem_job.result` 有 token 用量；人工读几份摘要，确认无明显编造或归属错误。
 
