@@ -23,7 +23,7 @@ bots:
     platform: mock
     listen_addr: 127.0.0.1:18080
 
-  # 真实 QQ：本进程主动连接 NapCat 的正向 WebSocket 服务端，断线自动重连。
+  # 真实 QQ：本进程主动连接 SnowLuma 的 OneBot 正向 WebSocket 服务端，断线自动重连。
   # 缺省关闭；在 .env 里填 ws_url / access_token 并设 KEI_BOTS_QQ_MAIN_ENABLED=true 启用。
   - name: qq-main
     adapter: onebot

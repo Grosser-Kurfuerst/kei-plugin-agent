@@ -247,7 +247,7 @@ PY
 | --- | --- | --- |
 | `config.yaml` | 是 | mock 与 `qq-main`（OneBot `forward_ws`，缺省关闭）两个 bot、persona 联调参数；不写密钥与本机地址 |
 | `.env.example` | 是 | 需要填写的环境变量模板 |
-| `.env` | 否（已忽略） | 本机值与密钥：LLM、NapCat 地址与 token、bot QQ 号、测试群、管理员、记忆库 DSN |
+| `.env` | 否（已忽略） | 本机值与密钥：LLM、SnowLuma 地址与 token、bot QQ 号、测试群、管理员、记忆库 DSN |
 
 `.env` 里的 `KEI_*` 变量覆盖或新增 `config.yaml` 的键，空值不生效（kei `docs/configuration.md` §12.7，插件侧见 [`configuration.md`](configuration.md) §10.3）：`KEI_BOTS_QQ_MAIN_<KEY>` 写 `qq-main` 的设置，`KEI_PLUGINS_PERSONA_<KEY>` 写插件键，二者的列表值用 YAML 写法（如 `[123456]`）；`KEI_AUTH_ADMIN_USERS` 例外，用逗号分隔。常用开关：
 
@@ -257,7 +257,7 @@ PY
 
 kei 自身存储用 `storage.type: memory`，`/agent` 的运行时覆盖重启即丢；需要保留时按 §11.3 改用 sqlite（宿主须空导入 `pkg/kei/sql` 并开 cgo）。
 
-mock 适配器的发送 ID 按进程从 `mock-1` 计数，与真实 bot 共用记忆库时，重启后 mock 会话里机器人自身回复会按去重键计为「重复」而不落库；用 mock 测记忆层时给它单独一个库。
+mock 适配器的发送 ID 按进程从 `mock-1` 计数，而机器人自身回复以发送 ID 作去重键（`m:<MsgID>`），因此重启后同一 mock 会话里的新回复会与上一轮的旧回复撞键、计为「重复」而不落库。mock 与真实 bot 的 `conv_key` 带平台名，二者互不冲突；用 mock 测记忆层时让 DSN 指向单独的 schema 并每轮重建，见 [`memory/deploy.md`](memory/deploy.md)「注意事项」。
 
 ### 运行
 
@@ -267,7 +267,7 @@ cd cmd/devhost
 (set -a && . ./.env && exec go run .)           # devShell 内执行；子 shell 避免密钥留在当前 shell
 ```
 
-根模块质量门不编译 devhost，改动 kei 或适配器后可单独检查：`(cd cmd/devhost && go build ./... && go vet ./...)`。
+根模块质量门不编译 devhost，改动 kei 或适配器后可单独检查：`(cd cmd/devhost && go build -o ../../bin/devhost . && go vet ./...)`。编译 devhost 一律用 `-o` 输出到已忽略的 `bin/`：在 `cmd/devhost` 里直接 `go build`（包括 `go build ./...`）会在当前目录生成未被忽略的 `devhost` 二进制。
 
 VS Code：装 direnv 扩展（`mkhl.direnv`）让编辑器加载 devShell 的 Go 与 dlv，再在本地建 `.vscode/launch.json`（`.vscode/` 被忽略，不提交）：
 
@@ -306,24 +306,6 @@ VS Code：装 direnv 扩展（`mkhl.direnv`）让编辑器加载 devShell 的 Go
 
 「仅 mock」项沿用 `.env` 的 LLM 与记忆库，只关掉真实 bot、放行 mock 的 `g1`，并以关键词 `bot` 触发（`/inject` 构造不了 @），注入 `{"text":"bot 在吗","user_id":"u1","channel_id":"g1"}` 即可，其余见 §11.3。`output` 把调试二进制放进已忽略的 `bin/`。
 
-### bot 容器（PVE LXC）
+### 接真实 QQ 与记忆库
 
-NapCat 与 PostgreSQL 放在同一个长期运行的 LXC 里，与开发机在同一网桥下经内网 IP 互通。宿主主动连 NapCat（`forward_ws`），开发机不需要开放端口，宿主重启后自动重连。
-
-1. **NapCat**：按 NapCat 官方文档安装并登录 bot 的 QQ；在其 OneBot 11 网络配置里新建 WebSocket 服务端，监听 `0.0.0.0:3001` 并设置 token，消息格式保持 `array`（CQ 码字符串会丢失 @ 信息）。`.env` 填 `KEI_BOTS_QQ_MAIN_WS_URL=ws://<LXC IP>:3001`、`KEI_BOTS_QQ_MAIN_ACCESS_TOKEN=<token>`、`KEI_BOTS_QQ_MAIN_ENABLED=true`。
-2. **PostgreSQL**（Debian）：
-   ```bash
-   apt update && apt install -y postgresql
-   runuser -u postgres -- psql -c "CREATE USER persona PASSWORD '<密码>'" -c "CREATE DATABASE persona OWNER persona"
-   # /etc/postgresql/<版本>/main/postgresql.conf：listen_addresses = '*'
-   # /etc/postgresql/<版本>/main/pg_hba.conf 追加，只放行开发机：
-   #   host  persona  persona  <开发机 IP>/32  scram-sha-256
-   systemctl restart postgresql
-   ```
-   `.env` 填 `KEI_PLUGINS_PERSONA_MEMORY_DATABASE_DSN=postgres://persona:<密码>@<LXC IP>:5432/persona?sslmode=disable`。
-
-### 验收
-
-- 启动日志无 `onebot: 正向 WebSocket 连接失败` 持续刷屏（NapCat 不可达时按 1s→30s 退避重连，不影响 mock）。
-- 测试群里 @bot 能收到回复；非白名单群不回复。
-- 管理员发 `/agent memory status` 显示 `数据库=就绪`，再发几条消息后「已写入」增长。
+依赖容器（SnowLuma + PostgreSQL）的搭建、开发机 `.env`、常驻部署、注意事项与验收见 [`memory/deploy.md`](memory/deploy.md)。
