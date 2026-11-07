@@ -14,7 +14,7 @@
 | 阶段 | 所属 | 状态 | 开始日期 | 完成日期 | 提交 / PR | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | S1 存储与写入 | M1 | 已完成 | 2026-11-05 | 2026-11-05 | `feat/memory` e965e96 … 171d7bf | 未接入根包；golangci-lint 0 issues |
-| S2 根包接入采集 | M1 | 已完成 | 2026-11-05 | 2026-11-05 | `feat/memory` 8568c53 … d14dddf | 运行验收用最小 kei 宿主 + mock 适配器 + 本地 PostgreSQL 走通；golangci-lint 0 issues |
+| S2 根包接入采集 | M1 | 已完成 | 2026-11-05 | 2026-11-05 | `feat/memory` 8568c53 … d14dddf | 运行验收用最小 kei 宿主 + mock 适配器 + 本地 PostgreSQL 走通；golangci-lint 0 issues；2026-11-08 在 SnowLuma + PostgreSQL 测试部署（[`../deploy.md`](../deploy.md)）上复验通过：部署验收、运行中断库、启动时库不可达与恢复、DB 单测 |
 | S3 任务框架与清理 | M2 | 未开始 | — | — | — | — |
 | S4 日摘要流水线 | M2 | 未开始 | — | — | — | — |
 | S5 读取与注入 | M2 | 未开始 | — | — | — | — |
