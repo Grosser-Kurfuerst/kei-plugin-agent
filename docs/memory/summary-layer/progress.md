@@ -19,7 +19,7 @@
 | S4 日摘要流水线 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `4058e6d` + `fix(memory): bound summary message and overlap budgets` | 预算规则已确认；真实会话日与真实模型抽验通过；本轮质量门全绿、review 1 轮通过 |
 | S5 读取与注入 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `feat(memory): inject recent daily summaries into replies` | 读取与注入、隔离与降级测试、真实宿主验收通过；review 2 轮通过 |
 | S6 滚动摘要与显式查询 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `65e3e58`、`3a93cdb` + `feat(memory): add explicit summary query tool` | 日界、滚动与读取、显式查询工具分开提交；运行验收及质量门通过，两部分 review 均 2 轮通过 |
-| S7 评测与调参 | M2 | 进行中 | 2026-11-09 | — | 导出、A 两次提交（见「迭代验证记录」） | 持续阶段：导出与 A 评测框架已实现并通过冒烟；B（工具调用时机）、case 与基线待后续，首次在 20 个 case 上达标即完成（§16.3.9） |
+| S7 评测与调参 | M2 | 进行中 | 2026-11-09 | — | 导出、A、B 三次提交（见「迭代验证记录」） | 持续阶段：评测框架已实现并通过冒烟；case、基线与 20-case 达标待真实数据，首次达标即完成（§16.3.9） |
 
 ## 阶段清单
 
@@ -90,13 +90,13 @@
 ### S7 评测与调参（§16.3.9）
 
 - [ ] 评测数据：`TestEvalExport` 导出与脱敏（会话内一致的 ID 映射）、标注流程走通；case 存放在仓库外（`PERSONA_MEMORY_EVAL_CASES_DIR`），持续积累至 20 个（含连续日、安静日与繁忙日）
-- [ ] A：`TestEvalDaily` 回放隔离 schema、逐 case 推进 `Now` 调用真实 `Pipeline.Daily`，输出自动指标（覆盖率、过碎、过粗、延续正确率、token）并按 `PERSONA_MEMORY_EVAL_RUNS` 取平均
-- [ ] B：`TestEvalSummaryTool`（生产人格、每问独立群号）、与 S6 运行测试共用的宿主辅助函数、合成问题集 `tool_queries.json`
+- [x] A：`TestEvalDaily` 回放隔离 schema、逐 case 推进 `Now` 调用真实 `Pipeline.Daily`，输出自动指标（覆盖率、过碎、过粗、延续正确率、token）并按 `PERSONA_MEMORY_EVAL_RUNS` 取平均
+- [x] B：`TestEvalSummaryTool`（生产人格、每问独立群号）、与 S6 运行测试共用的宿主辅助函数、合成问题集 `tool_queries.json`
 - [ ] `testdata/eval/RESULTS.md` 建立基线，按调优循环追加记录
 - [ ] 最新记录在至少 20 个 case 上达标：覆盖率 ≥ 80%、归属正确率 ≥ 95%、无编造
 - [x] 调参后 S4–S6 测试仍通过；`testing.md` §11.1 补评测运行命令
 
-导出与 A 评测框架已实现：`TestEvalExport`、`TestEvalDaily` 已提交；B（工具调用时机）、case 积累、基线与 20-case 达标项待后续。
+评测框架已实现：`TestEvalExport`、`TestEvalDaily`、`TestEvalSummaryTool` 与问题集已提交；导出已在本地库验证，case 积累、标注、基线与 20-case 达标项待真实数据。
 
 ## 评测结果摘要
 
@@ -120,7 +120,7 @@
 | 2026-11-08 | S6 | 开发前评审补定：滚动任务开始前与写入加锁后两次检查 `summarized_upto_id`，已有值即退出，D 不是今天不作为退出条件；更新今日滚动话题时保留 topic_key 与 `first_*`、参与者与要点取并集、标题摘要用新输出，已被今日滚动话题延续的 `k` 不再延续；新增 `RollingMergeSystem` 全文，日摘要提示词不变；新键序号为 `rolling_runs+1`，进度按开始时读到的 `msg_count` / `last_msg_id` 推进；读取侧滚动行排最前、不受 θ、无概况，「最近一天」只按日摘要计算，先按 `HistorySince` 跳过再去重；显式查询的单端日期补全、同日日摘要优先、零相关时退回日期排序，工具描述补充「按日期问时不要填 query」；触发测试移到 `ingest_test.go`，「写事务第 5 步」改为「第 4 步之后」 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.8 |
 | 2026-11-08 | S6 | 评审补充：滚动任务持久化固定 `JobPayload.Run`，开始及写入加锁后跳过已完成运行，避免摘要已提交但任务状态未保存时重放重复推进；最近日摘要概况独立于话题去重保留；`RollingEvery` / `RollingMaxPerDay`、`KeywordRelevance` / `OpenItems` 导出供写入和查询共用 | 设计与全部调用点同步，均有回归验证 |
 | 2026-11-08 | S6 | 完成后评审修正：延续今日滚动话题时，合并输出的标题或摘要为空则沿用旧话题而非本次切片；`memory__summary` 参数为空串时按 `{}` 处理；验收表测试位置改为实际文件（`rolling_test.go`、`summary/rolling_test.go`、根包 `memory_tools_test.go`），偏差表去掉断行空行 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.8 与 [`architecture.md`](../../architecture.md) 第 5 章，均有回归测试 |
-| 2026-11-09 | S7 | 导出只替换映射表中已知的 ID（来自 sender / mentions），正文里从未作为 sender/mention 出现的号码无法识别；正文先 `Redact` 再替换；`msg_id` / `reply_to` 不重映射。A 固定 `Asia/Shanghai` + 04:00 日界，延续按匹配话题 `topic_key` 集合求交，过粗率分母用 case 数 | 已在实现注释与 `testing.md` §11.1 说明；不改变 §16.3.9 的门槛与流程 |
+| 2026-11-09 | S7 | 导出只替换映射表中已知的 ID（来自 sender / mentions），正文里从未作为 sender/mention 出现的号码无法识别；正文先 `Redact` 再替换；`msg_id` / `reply_to` 不重映射。A 固定 `Asia/Shanghai` + 04:00 日界，延续按匹配话题 `topic_key` 集合求交，过粗率分母用生成话题数，分母为 0 的指标输出 N/A，多次运行按分子分母累加求比例。B 的问题集字段为 `message` / `expected` / `query` / `date_from_n` / `date_to_n` / `out_date_n`，日期占位符 `{date:N}` 渲染为 `YYYY-MM-DD`；日期正确率按期望字段（from/to）计数，窗口外召回只统计 `out_date_n` 非零的问题，冗余调用率分母为 `any` 问题，误调用分母为 `no_call` 问题，分母为 0 输出 N/A；问题集未知字段报错。合成摘要每个日期一个不同话题：-1 天在窗口内，-4～-6 天供按话题问（窗口外、但在不带日期调用的默认范围 `[今天-6, 今天]` 内），-7 / -10 / -20 / -21 天供按日期问；相对日期问法用「N 天前」而非「上周三」，避免期望日期有歧义；上海时间 04:00 前或 23:00 后开始时跳过。A、B 运行命令显式放宽 `-timeout` | §16.3.9 与 `testing.md` §11.1 已同步；不改变门槛与流程 |
 
 ## 迭代验证记录
 
@@ -136,4 +136,6 @@
 
 - S6 显式查询与工具（2026-11-08）：`QuerySummaries`、可信 Scene、日期范围与关键词排序、默认关闭的 `memory__summary`、人格过滤和工具目录完成，全部调用点与文档已同步。Nix devShell 中 build / vet / 全仓 PostgreSQL test 与 race 全通过，lint 0 issues，gofmt / diff check 干净。`TestRuntimeHostSummaryTool` 用真实 devhost、现有聊天模型与固定合成的上周三摘要，工具日志显示成功调用，回复包含对应餐厅安排；最终测试源码复跑 1.56s 通过，未读取或发送真实会话。review 2 轮，最终 `NO_BLOCKING_ISSUES`；补充多个正相关候选，精确验证相关度、日期和重要性排序优先级，PostgreSQL 普通 / race 回归及 lint 通过并复评。无第三轮后未复评修复。S6 完成，S7 未开始。
 
-- S7 导出与 A（2026-11-09）：导出、A 两个功能点分别提交；只新增测试与文档，生产代码不改。导出在本地 PostgreSQL 上验证 ID 映射、正文替换与手机号脱敏，负向验证仓库内未忽略路径与非法 case 名被拒；A 用合成 case + HTTP 桩回放真实 `Pipeline.Daily`，验证逐 case 推进 `Now`、话题匹配、覆盖率、要点报告与 token。gofmt / build / vet / go test / `go test -race ./internal/memory/...` 通过（无评测环境变量时相关用例跳过）。导出 review 2 轮、A review 2 轮，最终均 `NO_BLOCKING_ISSUES`。按用户要求暂不实现 B；真实 LLM、真实 case 与 20-case 基线尚未运行。
+- S7 评测框架（2026-11-09）：导出、A、B 三个功能点分别提交；只新增测试与文档，生产代码不改。导出在本地 PostgreSQL 上验证 ID 映射、正文替换与手机号脱敏，负向验证仓库内未忽略路径与非法 case 名被拒；A 用合成 case + HTTP 桩回放真实 `Pipeline.Daily`，验证逐 case 推进 `Now`、话题匹配、覆盖率、要点报告与 token；B 抽出共享宿主 helper，用本地 fake OpenAI 桩驱动真实 devhost，上海时间 04:01 后运行 25 问全部收到回复、宿主正常退出（63.5s），日志解析出 `memory__summary` 调用及 args，窗口外召回 2/4、日期正确 4/4、query 正确 2/4、误调用 1/10、冗余调用 1/7，与桩行为逐项一致；A、B 指标计算补纯函数单测。gofmt / build / vet / go test / `go test -race ./internal/memory/...` 通过（无评测环境变量时相关用例跳过）。导出 review 2 轮、A review 2 轮，最终均 `NO_BLOCKING_ISSUES`；B 及 A 指标修正的 review 见下一条。真实 LLM、真实 case 与 20-case 基线尚未运行。
+
+- S7 实现评审（2026-11-09）：对导出、A、B 整体评审。修正 A 过粗率分母（改为生成话题数）、分母为 0 输出 N/A、多次运行按分子分母累加；B 冗余调用率按 §16.3.9 改为 `any` 问题发生调用的比例；共享宿主 helper 恢复中断后正常退出检查、固定文本日志格式；问题集改为每天不同话题，话题类数据放在窗口外且在默认查询范围内，消除「上周」「三周前」等歧义标注；上海时间 04:00 前或 23:00 后开始时跳过；A、B 命令放宽 `-timeout`；补 `TestComputeEvalMetrics`、`TestEvalToolMetricsRecord`。Nix devShell 中 gofmt / vet / `go test -race ./...` / lint 0 issues / devhost vet 通过，B 用本地桩冒烟通过（见上一条）。review 3 轮：前两轮 `NEEDS_FIX`（问题集与注入窗口、日界、超时；话题数据超出默认查询范围），第 3 轮 `NO_BLOCKING_ISSUES`；之后把「最近群里有什么新鲜事」改为只问昨天以免冗余率偏高，此项未再复评。真实 LLM 评测未运行。

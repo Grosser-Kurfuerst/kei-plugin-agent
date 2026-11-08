@@ -1206,28 +1206,29 @@ S7 是**持续阶段**：评测框架先实现，评测数据随真实采集逐�
   - 过粗：同一个生成话题匹配到 2 个以上标注话题。
   - 延续正确率：带 `continues` 的标注话题中，匹配到的生成话题与前一 case 中被延续标注话题匹配到的生成话题有相同 `topic_key` 的比例（合并时延续已知话题会沿用其 `topic_key`）。
   - token 用量。
-- LLM 输出有随机性，测试内部循环 `PERSONA_MEMORY_EVAL_RUNS` 次（默认 3），每次用新的隔离 schema。用 `t.Log` 逐次、逐 case 输出生成话题与标注的对照和上述指标，最后输出各指标的平均值：`go test ./internal/memory/summary -run TestEvalDaily -v -count=1 > bin/eval-report.txt`（报告含生成的摘要内容，写到被 gitignore 忽略的 `bin/`，不提交）。
+- LLM 输出有随机性，测试内部循环 `PERSONA_MEMORY_EVAL_RUNS` 次（默认 3），每次用新的隔离 schema。用 `t.Log` 逐次、逐 case 输出生成话题与标注的对照和上述指标，最后输出各指标的平均值：`go test ./internal/memory/summary -run TestEvalDaily -v -count=1 -timeout 3h > bin/eval/daily-report.txt`（报告含生成的摘要内容，写到被 gitignore 忽略的 `bin/`，不提交）。
 - 人工复核：逐条检查要点的说话人归属与有无编造。可以先用 LLM 预筛可疑要点，结论以人工为准。
 - 门槛：只有 §16.1 的三项（覆盖率 ≥ 80%、归属正确率 ≥ 95%、无编造）。过碎、过粗、延续正确率只记录、看趋势，不设门槛。
 
 **B：工具调用时机（`TestEvalSummaryTool`）**
 
-- 沿用 `TestRuntimeHostSummaryTool` 的方式：真实 devhost、隔离 schema、`debug_prompts` 与 `memory_tools_enabled` 开启。启动宿主、注入消息、读取回复的代码抽成两者共用的测试辅助函数。只在设置了 `PERSONA_MEMORY_EVAL_HOST_BINARY` 时运行，否则 `t.Skip`。
+- 沿用 `TestRuntimeHostSummaryTool` 的方式：真实 devhost、隔离 schema、`debug_prompts` 与 `memory_tools_enabled` 开启。启动宿主、注入消息、读取回复的代码抽成两者共用的测试辅助函数。只在设置了 `PERSONA_MEMORY_TEST_DSN` 与 `PERSONA_MEMORY_EVAL_HOST_BINARY` 时运行，否则 `t.Skip`；上海时间 04:00 前或 23:00 后开始时也跳过（04:00 前摘要日仍是前一天，与模型从 `{{now}}` 看到的日历日差一天）。
 - 使用 `cmd/devhost/config.yaml` 中的生产人格，**不覆盖人格提示词**；问题按真实用户的说法写，不附「请用工具查询」之类的提示；像「上周三」这类相对说法不在括号里补写具体日期，只有问题本身就是按日期问时才写日期。否则召回率会虚高。
 - 每条问题使用独立的群号，各群写入同一份合成摘要，互不共享对话历史，避免前一问的回答影响后一问。合成摘要直接写在测试代码中。
 - 与 S6 运行测试一样用 `bot` 触发词前缀触发回复，问题正文照常写；`random_timezone` 与 `memory_daily_at` 与生产一致（`Asia/Shanghai`、04:00），相对日期按此换算。
 - B 的结果与 A 记在同一个 `RESULTS.md`。
-- 合成摘要既有 `WindowDays` 窗口内的日期，也有窗口外的日期。逐条发送问题，从该问题之后「persona 工具调用」日志的 `tool` 与 `args` 判断有没有调用、参数对不对。数据全为合成，不读取真实会话。
+- 合成摘要既有 `WindowDays` 窗口内的日期，也有窗口外的日期，每个日期一个不同的话题，便于核对日期与召回。按话题问的话题放在窗口外、但在不带日期调用的默认范围（`[今天-6, 今天]`，§16.3.8）内的日期，否则只带 `query` 的调用查不到却仍记为 `query` 正确。逐条发送问题，从该问题之后「persona 工具调用」日志的 `tool` 与 `args` 判断有没有调用、参数对不对。数据全为合成，不读取真实会话。
 - 问题集放在 `internal/memory/testdata/eval/tool_queries.json`，每条包含：
-  - `message`：可用 `{{date:-N}}` 占位，渲染为 N 天前的「M月D日」；
-  - `expect`：`call`、`no_call` 或 `any`；
-  - `call` 时可选期望的 `date_from` / `date_to`（同样用相对天数）与 `query` 关键词。
+  - `message`：可用 `{date:N}` 占位，渲染为 today+N 的 `YYYY-MM-DD`；
+  - `expected`：`call`、`no_call` 或 `any`；
+  - `call` 时可选 `query` 关键词；
+  - 日期期望用 `date_from_n` / `date_to_n`（相对 today 的天数）或 `date_from` / `date_to`（`{date:N}` 或 `YYYY-MM-DD`）给出；`out_date_n` 非零表示窗口外问题。
 - 四类问题，共 20–30 条：
   - 窗口内（今天、昨天聊了什么）：`any`，注入已有，记冗余调用率；
   - 窗口外或指定日期：`call`，要求日期正确；
-  - 按话题问：`call`，要求 `query` 正确；
+  - 按话题问：只问窗口外日期的话题（窗口内的已注入，问了也不必调用），`call`，要求 `query` 正确；
   - 与历史无关：`no_call`。
-- 指标：窗口外召回率、日期参数正确率、`query` 正确率、误调用率、冗余调用率。只记录、看趋势，不设门槛。
+- 指标：窗口外召回率（`out_date_n` 非零的问题中，至少一次调用的期望日期全部匹配）、日期参数正确率（按每次调用的期望 `date_from` / `date_to` 字段计）、`query` 正确率、误调用率（`no_call` 问题发生调用）、冗余调用率（`any` 问题发生调用）。只记录、看趋势，不设门槛。
 
 **调优循环**
 

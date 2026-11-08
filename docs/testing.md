@@ -64,11 +64,12 @@ PERSONA_MEMORY_SUMMARY_HOST_BINARY=/tmp/persona-memory-devhost go test ./interna
 
 同样需要测试 DSN 与宿主聊天模型配置。测试询问上周三（附明确日期），检查 `memory__summary` 调用成功且回复包含对应摘要。
 
-S7 评测：case 与映射表含真实数据，只能放在仓库外或被忽略的目录（如 `bin/eval/`），不得提交；仓库只提交 `internal/memory/summary/testdata/eval/RESULTS.md`。评测测试只在对应环境变量齐全时运行，否则 `t.Skip`。
+S7 评测：case 与映射表含真实数据，只能放在仓库外或被忽略的目录（如 `bin/eval/`），不得提交；真实数据相关只提交指标记录 `internal/memory/summary/testdata/eval/RESULTS.md`（B 的合成问题集随代码提交）。评测测试只在对应环境变量齐全时运行，否则 `t.Skip`；真实 LLM 评测耗时长，命令显式放宽 `-timeout`（`go test` 默认 10 分钟）。
 
 导出（源库只读；case 名为 `<会话代号>-<YYYY-MM-DD>`）：
 
 ```bash
+mkdir -p bin/eval
 export PERSONA_MEMORY_EVAL_CASES_DIR="$PWD/bin/eval/cases"
 export PERSONA_MEMORY_EVAL_ID_MAP="$PWD/bin/eval/id_map.json"
 PERSONA_MEMORY_EVAL_SOURCE_DSN='postgres://...' PERSONA_MEMORY_EVAL_CONV='group:onebot:...' \
@@ -84,10 +85,20 @@ PERSONA_MEMORY_EVAL_CASES_DIR="$PWD/bin/eval/cases" \
 PERSONA_MEMORY_EVAL_LLM_BASE_URL='https://.../v1' PERSONA_MEMORY_EVAL_LLM_API_KEY='...' \
 PERSONA_MEMORY_EVAL_LLM_MODEL_SMALL='...' PERSONA_MEMORY_EVAL_LLM_MODEL_LARGE='...' \
 PERSONA_MEMORY_EVAL_RUNS=3 \
-go test ./internal/memory/summary -run TestEvalDaily -v -count=1 > bin/eval/daily-report.txt
+go test ./internal/memory/summary -run TestEvalDaily -v -count=1 -timeout 3h > bin/eval/daily-report.txt
 ```
 
 `PERSONA_MEMORY_EVAL_RUNS` 缺省为 3。报告含生成的摘要内容，写到被忽略的 `bin/`，不提交；指标与改动摘要追加到 [`internal/memory/summary/testdata/eval/RESULTS.md`](../internal/memory/summary/testdata/eval/RESULTS.md)。
+
+B：`memory__summary` 的调用时机。需要 `PERSONA_MEMORY_TEST_DSN`（隔离 schema）与宿主聊天模型配置（同 S6）；使用 `cmd/devhost/config.yaml` 的生产人格、每个问题独立群号与合成摘要，不读取真实会话。问题集见 `internal/memory/testdata/eval/tool_queries.json`。须在上海时间 04:00–23:00 之间开始运行，否则摘要日与模型看到的日历日不一致，测试会跳过：
+
+```bash
+go build -C cmd/devhost -o /tmp/persona-memory-devhost .
+PERSONA_MEMORY_TEST_DSN='postgres://...' PERSONA_MEMORY_EVAL_HOST_BINARY=/tmp/persona-memory-devhost \
+go test ./internal/memory -run TestEvalSummaryTool -v -count=1 -timeout 1h > bin/eval/tool-report.txt
+```
+
+B 只记录、看趋势，不设门槛；结果与 A 记在同一个 `RESULTS.md`。
 
 ## 11.2 单元测试矩阵
 
