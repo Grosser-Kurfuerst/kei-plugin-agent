@@ -175,7 +175,7 @@ worker 领取任务（FOR UPDATE SKIP LOCKED）
 | S4 日摘要流水线 | M2 | 每天为前一天的活跃会话生成日摘要 | 不读取、不注入；无滚动摘要 | 4 天 |
 | S5 读取与注入 | M2 | 生成回复时注入「近期重点」 | 只用日摘要；无记忆工具 | 2 天 |
 | S6 滚动摘要与显式查询 | M2 | 当天消息多时也有摘要；模型可调用 `memory__summary` | — | 2–3 天 |
-| S7 评测与调参 | M2 | 达到 §16.1 的质量标准，提示词与参数定稿 | 不加新功能 | 2 天 |
+| S7 评测与调参 | M2 | 达到 §16.1 的质量标准，提示词与参数定稿；之后持续评测 | 不加新功能；与后续阶段并行 | 框架 2–3 天，数据随采集积累 |
 
 合计约 16–18 个工作日：M1 约 1 周，M2 约 2–2.5 周。S2 结束即可上线「只采集」；S5 结束机器人开始「记得前几天」。
 
@@ -1180,18 +1180,75 @@ var ErrInvalidDateRange = errors.New("memory: 日期范围非法")
 
 ### 16.3.9 S7：评测与调参
 
-**做什么**
+S7 是**持续阶段**：评测框架先实现，评测数据随真实采集逐步积累，与 M3 及后续开发并行，不阻塞后续阶段开工。评测分两部分：A 评摘要与话题归类，是达标门槛；B 评 `memory__summary` 的调用时机，只做观察。
 
-- 评测数据：从真实群聊抽 20 个会话日，**脱敏后**放在 `internal/memory/summary/testdata/eval/<case>/`：`messages.jsonl`（每行一条 `Record`）与 `labels.json`（`{"topics":[{"title":"…","keywords":["…"]}],"key_points":[{"text":"…","speaker":"<user_id>"}]}`）。未脱敏数据不得提交。
-- 评测函数 `TestEvalDaily`：用真实 LLM 对每个 case 跑切片 → 小结 → 合并（不连库）。只在设置了 `PERSONA_MEMORY_EVAL_LLM_BASE_URL`、`PERSONA_MEMORY_EVAL_LLM_API_KEY`、`PERSONA_MEMORY_EVAL_LLM_MODEL` 时运行，否则 `t.Skip`。用 `t.Log` 输出生成话题与标注对照、自动覆盖率（标注话题任一 keyword 出现在某个生成话题的标题或摘要中即视为覆盖）与 token 用量。运行：`go test ./internal/memory/summary -run TestEvalDaily -v > eval-report.txt`。
-- 人工复核：逐条检查要点的说话人归属与有无编造，结果记入 `testdata/eval/RESULTS.md`（日期、改动摘要、四项指标）。
-- 调参：只改 `params.go` 的常量与 `prompts.go` 的提示词，不改流程。
+**评测数据**
 
-**验收**
+- 来源：从生产库按会话与摘要日导出 `mem_message`，转成每行一条 `Record` 的 `messages.jsonl`，**脱敏后**放在 `internal/memory/summary/testdata/eval/<case>/`，case 名为 `<会话代号>-<YYYY-MM-DD>`。脱敏时用户 ID 按会话一致地映射为 `u1`、`u2`……，保证说话人归属仍可核对。未脱敏数据只留在本地，不得提交。
+- 标注：`labels.json` 为 `{"topics":[{"title":"…","keywords":["…"],"continues":"…"}],"key_points":[{"text":"…","speaker":"<user_id>"}]}`。`continues` 可省略，填同一会话前一个 case 中被延续的标注话题 `title`。**先标注，再看模型输出**，避免被生成结果带偏。
+- 选样：目标 20 个会话日。其中至少 3 组、每组至少 2 个连续日（用于评延续）；安静日（少于 50 条）与繁忙日（达到滚动阈值 200 条）都要有；有条件时覆盖多个群。不足 20 个时也照常评测，`RESULTS.md` 写明 case 数。
 
-- `RESULTS.md` 最新记录达到 §16.1 的标准，并给出平均每会话日 token 用量。
-- 调参后 S4–S6 的测试仍通过；断言了被调常量的确定性用例随之更新。
-- 此后修改提示词或参数，都必须重跑评测并追加记录。
+**A：摘要与话题归类（`TestEvalDaily`）**
+
+- 用真实 LLM 对每个 case 跑切片 → 小结 → 合并，不连库。同一会话的 case 按日期顺序处理，`WindowDays` 内前几个 case 的生成话题作为已知话题传给合并，与生产一致。只在设置了 `PERSONA_MEMORY_EVAL_LLM_BASE_URL`、`PERSONA_MEMORY_EVAL_LLM_API_KEY`、`PERSONA_MEMORY_EVAL_LLM_MODEL` 时运行，否则 `t.Skip`。
+- 匹配规则：标注话题的任一 keyword 出现在某个生成话题的标题或摘要中，即视为两者匹配。
+- 自动指标：
+  - 覆盖率：被匹配到的标注话题占比。
+  - 过碎：同一个标注话题匹配到 2 个以上生成话题。
+  - 过粗：同一个生成话题匹配到 2 个以上标注话题。
+  - 延续正确率：带 `continues` 的标注话题中，匹配到的生成话题延续了前一 case 中对应生成话题的比例。
+  - token 用量。
+- 用 `t.Log` 逐 case 输出生成话题与标注的对照和上述指标，最后输出汇总。LLM 输出有随机性，每组参数跑 3 次，指标取平均：`go test ./internal/memory/summary -run TestEvalDaily -v -count=3 > eval-report.txt`。
+- 人工复核：逐条检查要点的说话人归属与有无编造。可以先用 LLM 预筛可疑要点，结论以人工为准。
+- 门槛：只有 §16.1 的三项（覆盖率 ≥ 80%、归属正确率 ≥ 95%、无编造）。过碎、过粗、延续正确率只记录、看趋势，不设门槛。
+
+**B：工具调用时机（`TestEvalSummaryTool`）**
+
+- 沿用 `TestRuntimeHostSummaryTool` 的方式：真实 devhost、隔离 schema、`debug_prompts` 开启。只在设置了 `PERSONA_MEMORY_EVAL_HOST_BINARY` 时运行，否则 `t.Skip`。
+- 写入固定的合成摘要：既有 `WindowDays` 窗口内的日期，也有窗口外的日期。逐条发送问题，从「persona 工具调用」日志的 `tool` 与 `args` 判断有没有调用、参数对不对。数据全为合成，不读取真实会话。
+- 问题集放在 `internal/memory/testdata/eval/tool_queries.json`，每条包含：
+  - `message`：可用 `{{date:-N}}` 占位，渲染为 N 天前的「M月D日」；
+  - `expect`：`call`、`no_call` 或 `any`；
+  - `call` 时可选期望的 `date_from` / `date_to`（同样用相对天数）与 `query` 关键词。
+- 四类问题，共 20–30 条：
+  - 窗口内（今天、昨天聊了什么）：`any`，注入已有，记冗余调用率；
+  - 窗口外或指定日期：`call`，要求日期正确；
+  - 按话题问：`call`，要求 `query` 正确；
+  - 与历史无关：`no_call`。
+- 指标：窗口外召回率、日期参数正确率、`query` 正确率、误调用率、冗余调用率。只记录、看趋势，不设门槛。
+
+**调优循环**
+
+1. 用当前 case 集跑 A（必要时也跑 B），作为基线，记入 `RESULTS.md`。
+2. 每次只改一个变量，重跑后与基线对比。指标提升且门槛项不回退时保留改动，并作为新基线；否则回退。
+3. 每次评测都追加一条记录：日期、改动摘要、case 数、运行次数、门槛三项、观察项（A 的过碎、过粗、延续正确率；B 的五项）、平均每会话日 token。
+
+可调范围限于常量、提示词、工具描述与记忆相关配置，不改流程：
+
+| 现象 | 优先调整 |
+| --- | --- |
+| 漏掉重点话题 | `SliceSystem` 强调不遗漏；调小 `sliceMaxMsgs` / `sliceMaxChars` |
+| 过碎 | `MergeSystem` / `RollingMergeSystem` 的合并标准；调大 `sliceGapMinutes` |
+| 过粗 | 与上一行反向调整 |
+| 延续错误 | 合并提示词中「延续」的判定说明；`WindowDays` |
+| 归属错误 | 切片输入中说话人标识的写法；提示词要求要点注明说话人 |
+| 编造 | 收紧提示词；降低 `llmTemperature` |
+| token 过高 | 减少 `sliceOverlapMsgs`；调整 `memory_llm_model_small` / `memory_llm_model_large` 的选择 |
+| 窗口外召回低、日期错误 | `memory__summary` 的工具描述（同步 `memory_tools_test.go` 的逐字断言） |
+| 冗余调用多 | 工具描述写明近几天的内容已在上下文中 |
+| 注入不够用 | `WindowDays`、`memory_context_max_chars` |
+
+**评测证明需要时再立项的改进**（属于新功能，不在 S7 内实现）：
+
+- 检索式注入：生成前按用户消息中的时间词或关键词直接查询摘要并注入，不依赖模型调用工具。只有 B 的窗口外召回率在调整工具描述后仍然偏低时才考虑。
+- 引用上下文（见 §16.3.6「本阶段不做」）。
+- 重要性加入消息数、发言人数等信号（见 §16.3.6）。
+
+**验收与状态**
+
+- `RESULTS.md` 最新记录在至少 20 个 case 上达到 §16.1 的标准，并给出平均每会话日 token 用量。首次达到时 S7 标为已完成，M2 随之完成。在此之前 S7 保持进行中，不影响后续阶段开发。
+- 调参后 S4–S6 的测试仍通过；断言了被调常量或工具描述的确定性用例随之更新。
+- S7 完成后，修改提示词、参数或工具描述仍须重跑评测并追加记录；门槛项回退的改动不得合并。
 
 ### 16.3.10 各阶段需同步的文档
 
@@ -1203,6 +1260,6 @@ var ErrInvalidDateRange = errors.New("memory: 日期范围非法")
 | S4 | `configuration.md` 的 `memory_llm_*`；`testing.md` §11.2 |
 | S5 | `configuration.md` 上下文键；`persona.md` §8.5 记忆块位置与逐字格式；`architecture.md` 第 2 章数据流 |
 | S6 | `configuration.md` 的 `memory_tools_enabled` 与人格 `tools` 校验、`memory_daily_at` 的日界说明；[`../overview.md`](../overview.md) 每日任务链的日界；`architecture.md` 第 1 章工具边界改为「除内置记忆工具外经 MCP」、第 5 章 `memory_tools.go`；核对 [`../../mcp.md`](../../mcp.md) §13.3、§13.5、§14.3、§14.6 |
-| S7 | 无新增契约；评测结果记在 `RESULTS.md` |
+| S7 | 无新增契约；评测结果记在 `RESULTS.md`；实现评测函数时在 [`../../testing.md`](../../testing.md) §11.1 补运行命令与环境变量 |
 | 每个阶段 | [`progress.md`](progress.md) 的阶段状态与清单，并同步 [`../progress.md`](../progress.md)；本阶段在其他文档新增记忆相关章节时，同步 [`../overview.md`](../overview.md) 开头的文档索引 |
 | 可选 | `flake.nix` 的 devShell 加入 PostgreSQL（属于代码改动，随任一阶段提交） |
