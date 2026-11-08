@@ -18,6 +18,8 @@ import (
 	_ "github.com/RandomLemon/kei-plugin-persona"
 	_ "github.com/RandomLemon/kei/adapters/mock"
 	_ "github.com/RandomLemon/kei/adapters/onebot"
+	// SQL 存储方言（sqlite/mysql），使 storage.type 可选持久后端；sqlite 需要 cgo。
+	_ "github.com/RandomLemon/kei/pkg/kei/sql"
 )
 
 func main() {
