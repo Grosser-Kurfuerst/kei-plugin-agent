@@ -89,9 +89,9 @@
 
 ### S7 评测与调参（§16.3.9）
 
-- [ ] 评测数据：导出、脱敏与标注流程走通；case 持续积累至 20 个（含连续日、安静日与繁忙日）
-- [ ] A：`TestEvalDaily` 及自动指标（覆盖率、过碎、过粗、延续正确率、token）报告
-- [ ] B：`TestEvalSummaryTool` 与合成问题集 `tool_queries.json`
+- [ ] 评测数据：`TestEvalExport` 导出与脱敏（会话内一致的 ID 映射）、标注流程走通；case 存放在仓库外（`PERSONA_MEMORY_EVAL_CASES_DIR`），持续积累至 20 个（含连续日、安静日与繁忙日）
+- [ ] A：`TestEvalDaily` 回放隔离 schema、逐 case 推进 `Now` 调用真实 `Pipeline.Daily`，输出自动指标（覆盖率、过碎、过粗、延续正确率、token）并按 `PERSONA_MEMORY_EVAL_RUNS` 取平均
+- [ ] B：`TestEvalSummaryTool`（生产人格、每问独立群号）、与 S6 运行测试共用的宿主辅助函数、合成问题集 `tool_queries.json`
 - [ ] `testdata/eval/RESULTS.md` 建立基线，按调优循环追加记录
 - [ ] 最新记录在至少 20 个 case 上达标：覆盖率 ≥ 80%、归属正确率 ≥ 95%、无编造
 - [ ] 调参后 S4–S6 测试仍通过；`testing.md` §11.1 补评测运行命令

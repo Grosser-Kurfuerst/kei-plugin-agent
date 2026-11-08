@@ -1184,28 +1184,40 @@ S7 是**持续阶段**：评测框架先实现，评测数据随真实采集逐�
 
 **评测数据**
 
-- 来源：从生产库按会话与摘要日导出 `mem_message`，转成每行一条 `Record` 的 `messages.jsonl`，**脱敏后**放在 `internal/memory/summary/testdata/eval/<case>/`，case 名为 `<会话代号>-<YYYY-MM-DD>`。脱敏时用户 ID 按会话一致地映射为 `u1`、`u2`……，保证说话人归属仍可核对。未脱敏数据只留在本地，不得提交。
+- 存放：评测 case 来自真实群聊，**不进仓库**（仓库公开）。case 根目录由 `PERSONA_MEMORY_EVAL_CASES_DIR` 指定，只能在仓库外或被 gitignore 忽略的位置（如 `bin/eval/`）。仓库里只提交 `internal/memory/summary/testdata/eval/RESULTS.md`，只记指标与改动摘要，不摘录聊天原文。
+- 格式：每个 case 一个目录 `<case>/`，case 名为 `<会话代号>-<YYYY-MM-DD>`，会话代号是自取的短名（如 `g1`），不用真实群号或群名。`messages.jsonl` 每行一条消息，字段取 `store.Message` 的子集：`msg_id`、`sender_id`、`sender_name`、`sender_is_bot`、`is_self`、`persona`、`text`、`reply_to`、`mentions`、`sent_at`（RFC 3339，UTC）。`sender_is_bot` 不能省：预过滤与说话人别名都依赖它，缺了会把其他机器人的消息当成群友发言；`persona` 用于提示词中机器人人格名的显示。不用 `memory.Record`：`internal/memory` 引用了 `summary`，测试再引用 `memory` 会循环引用。
+- 导出（`TestEvalExport`）：只在设置了 `PERSONA_MEMORY_EVAL_SOURCE_DSN`（源库，只读，可经 SSH 隧道连生产库）、`PERSONA_MEMORY_EVAL_CONV`（`conv_key`）、`PERSONA_MEMORY_EVAL_DATE`（摘要日）、`PERSONA_MEMORY_EVAL_CASE`（case 名）、`PERSONA_MEMORY_EVAL_ID_MAP`（映射表路径）、`PERSONA_MEMORY_EVAL_CASES_DIR` 时运行，否则 `t.Skip`。按 `local_date` 导出该会话该摘要日未撤回的消息（摘要日沿用生产的 `Asia/Shanghai` 与 04:00 日界，入库时已算好），脱敏后写入 `<CASES_DIR>/<case>/messages.jsonl`：
+  - 用户 ID 映射为 `u1`、`u2`……，`sender_id`、`mentions` 与正文中出现的 ID 一并替换；`sender_name` 替换为映射后的编号；正文先经 `Redact`。
+  - 映射表是 JSON 文件，按会话记录「真实 ID → 编号」。同一会话的所有 case 共用并追加同一份映射，同一个人在每天的 case 里编号一致，跨天的说话人归属与延续才可核对。映射表含真实 ID，只能放在仓库外或被 gitignore 忽略的位置（如 `bin/`），不得提交。
+  - case 不进仓库，脱敏是为了让标注、评测报告与 `RESULTS.md` 不出现真实 ID 与昵称，不再要求逐条人工清理正文。
 - 标注：`labels.json` 为 `{"topics":[{"title":"…","keywords":["…"],"continues":"…"}],"key_points":[{"text":"…","speaker":"<user_id>"}]}`。`continues` 可省略，填同一会话前一个 case 中被延续的标注话题 `title`。**先标注，再看模型输出**，避免被生成结果带偏。
 - 选样：目标 20 个会话日。其中至少 3 组、每组至少 2 个连续日（用于评延续）；安静日（少于 50 条）与繁忙日（达到滚动阈值 200 条）都要有；有条件时覆盖多个群。不足 20 个时也照常评测，`RESULTS.md` 写明 case 数。
 
 **A：摘要与话题归类（`TestEvalDaily`）**
 
-- 用真实 LLM 对每个 case 跑切片 → 小结 → 合并，不连库。同一会话的 case 按日期顺序处理，`WindowDays` 内前几个 case 的生成话题作为已知话题传给合并，与生产一致。只在设置了 `PERSONA_MEMORY_EVAL_LLM_BASE_URL`、`PERSONA_MEMORY_EVAL_LLM_API_KEY`、`PERSONA_MEMORY_EVAL_LLM_MODEL` 时运行，否则 `t.Skip`。
+- 与 `TestRuntimeDailySummary` 相同，回放进 `memtest` 隔离 schema，直接调用真实的 `Pipeline.Daily`，评测与生产行为一致，不为评测改动流水线代码：
+  - 写入：每个会话代号插一条会话行，`conv_key` 为 `group:eval:<会话代号>`，类型 `group`，名称为会话代号（会出现在提示词「群聊「…」」中，不用真实群名）。该会话全部 case 的消息一次写入，消息的 `local_date` 直接取 case 日期，并按 case 写会话日行。
+  - 时间：`Pipeline` 的 `Location` 为 `Asia/Shanghai`、`DayStart` 为 04:00，与生产一致。`Daily` 只处理 `Now` 之前 7 天内未摘要的日期，因此按日期升序逐个 case 调用：每次把 `Now` 设为该 case 日期次日 05:00，调用一次 `Daily`。这样旧日期的 case 也能处理，每个 case 的 token 可单独统计，前几个 case 的日摘要自然成为已知话题。
+- 只在设置了 `PERSONA_MEMORY_TEST_DSN`、`PERSONA_MEMORY_EVAL_LLM_BASE_URL`、`PERSONA_MEMORY_EVAL_LLM_API_KEY`、`PERSONA_MEMORY_EVAL_LLM_MODEL_SMALL`、`PERSONA_MEMORY_EVAL_LLM_MODEL_LARGE` 时运行，否则 `t.Skip`。大小模型分别对应 `Pipeline` 的切片小结与合并，应与生产的 `memory_llm_model_small` / `memory_llm_model_large` 一致。
 - 匹配规则：标注话题的任一 keyword 出现在某个生成话题的标题或摘要中，即视为两者匹配。
 - 自动指标：
   - 覆盖率：被匹配到的标注话题占比。
   - 过碎：同一个标注话题匹配到 2 个以上生成话题。
   - 过粗：同一个生成话题匹配到 2 个以上标注话题。
-  - 延续正确率：带 `continues` 的标注话题中，匹配到的生成话题延续了前一 case 中对应生成话题的比例。
+  - 延续正确率：带 `continues` 的标注话题中，匹配到的生成话题与前一 case 中被延续标注话题匹配到的生成话题有相同 `topic_key` 的比例（合并时延续已知话题会沿用其 `topic_key`）。
   - token 用量。
-- 用 `t.Log` 逐 case 输出生成话题与标注的对照和上述指标，最后输出汇总。LLM 输出有随机性，每组参数跑 3 次，指标取平均：`go test ./internal/memory/summary -run TestEvalDaily -v -count=3 > eval-report.txt`。
+- LLM 输出有随机性，测试内部循环 `PERSONA_MEMORY_EVAL_RUNS` 次（默认 3），每次用新的隔离 schema。用 `t.Log` 逐次、逐 case 输出生成话题与标注的对照和上述指标，最后输出各指标的平均值：`go test ./internal/memory/summary -run TestEvalDaily -v -count=1 > bin/eval-report.txt`（报告含生成的摘要内容，写到被 gitignore 忽略的 `bin/`，不提交）。
 - 人工复核：逐条检查要点的说话人归属与有无编造。可以先用 LLM 预筛可疑要点，结论以人工为准。
 - 门槛：只有 §16.1 的三项（覆盖率 ≥ 80%、归属正确率 ≥ 95%、无编造）。过碎、过粗、延续正确率只记录、看趋势，不设门槛。
 
 **B：工具调用时机（`TestEvalSummaryTool`）**
 
-- 沿用 `TestRuntimeHostSummaryTool` 的方式：真实 devhost、隔离 schema、`debug_prompts` 开启。只在设置了 `PERSONA_MEMORY_EVAL_HOST_BINARY` 时运行，否则 `t.Skip`。
-- 写入固定的合成摘要：既有 `WindowDays` 窗口内的日期，也有窗口外的日期。逐条发送问题，从「persona 工具调用」日志的 `tool` 与 `args` 判断有没有调用、参数对不对。数据全为合成，不读取真实会话。
+- 沿用 `TestRuntimeHostSummaryTool` 的方式：真实 devhost、隔离 schema、`debug_prompts` 与 `memory_tools_enabled` 开启。启动宿主、注入消息、读取回复的代码抽成两者共用的测试辅助函数。只在设置了 `PERSONA_MEMORY_EVAL_HOST_BINARY` 时运行，否则 `t.Skip`。
+- 使用 `cmd/devhost/config.yaml` 中的生产人格，**不覆盖人格提示词**；问题按真实用户的说法写，不附「请用工具查询」之类的提示；像「上周三」这类相对说法不在括号里补写具体日期，只有问题本身就是按日期问时才写日期。否则召回率会虚高。
+- 每条问题使用独立的群号，各群写入同一份合成摘要，互不共享对话历史，避免前一问的回答影响后一问。合成摘要直接写在测试代码中。
+- 与 S6 运行测试一样用 `bot` 触发词前缀触发回复，问题正文照常写；`random_timezone` 与 `memory_daily_at` 与生产一致（`Asia/Shanghai`、04:00），相对日期按此换算。
+- B 的结果与 A 记在同一个 `RESULTS.md`。
+- 合成摘要既有 `WindowDays` 窗口内的日期，也有窗口外的日期。逐条发送问题，从该问题之后「persona 工具调用」日志的 `tool` 与 `args` 判断有没有调用、参数对不对。数据全为合成，不读取真实会话。
 - 问题集放在 `internal/memory/testdata/eval/tool_queries.json`，每条包含：
   - `message`：可用 `{{date:-N}}` 占位，渲染为 N 天前的「M月D日」；
   - `expect`：`call`、`no_call` 或 `any`；
@@ -1244,6 +1256,18 @@ S7 是**持续阶段**：评测框架先实现，评测数据随真实采集逐�
 - 引用上下文（见 §16.3.6「本阶段不做」）。
 - 重要性加入消息数、发言人数等信号（见 §16.3.6）。
 
+**实现规模**
+
+只新增测试代码，生产代码不改；分三次提交：
+
+| 提交 | 内容 | 规模 |
+| --- | --- | --- |
+| 导出 | `TestEvalExport`：读源库、ID 映射与映射表读写、`Redact`、写 `messages.jsonl` | 约 80–100 行 |
+| A | `TestEvalDaily`：读 case 与标注、回放写库、逐日调用 `Daily`、匹配与指标、多次运行取平均；建立 `RESULTS.md` | 约 250 行 |
+| B | `TestEvalSummaryTool` 与合成摘要、问题集 `tool_queries.json`；把 `TestRuntimeHostSummaryTool` 的宿主启动、注入、读回复抽成共用辅助函数 | 约 150 行 + 重构约 40 行 |
+
+合计约 500 行测试代码；随各提交在 [`../../testing.md`](../../testing.md) §11.1 补运行命令与环境变量。
+
 **验收与状态**
 
 - `RESULTS.md` 最新记录在至少 20 个 case 上达到 §16.1 的标准，并给出平均每会话日 token 用量。首次达到时 S7 标为已完成，M2 随之完成。在此之前 S7 保持进行中，不影响后续阶段开发。
@@ -1260,6 +1284,6 @@ S7 是**持续阶段**：评测框架先实现，评测数据随真实采集逐�
 | S4 | `configuration.md` 的 `memory_llm_*`；`testing.md` §11.2 |
 | S5 | `configuration.md` 上下文键；`persona.md` §8.5 记忆块位置与逐字格式；`architecture.md` 第 2 章数据流 |
 | S6 | `configuration.md` 的 `memory_tools_enabled` 与人格 `tools` 校验、`memory_daily_at` 的日界说明；[`../overview.md`](../overview.md) 每日任务链的日界；`architecture.md` 第 1 章工具边界改为「除内置记忆工具外经 MCP」、第 5 章 `memory_tools.go`；核对 [`../../mcp.md`](../../mcp.md) §13.3、§13.5、§14.3、§14.6 |
-| S7 | 无新增契约；评测结果记在 `RESULTS.md`；实现评测函数时在 [`../../testing.md`](../../testing.md) §11.1 补运行命令与环境变量 |
+| S7 | 无新增契约；评测结果记在 `internal/memory/summary/testdata/eval/RESULTS.md`（§16.3.9）；实现评测函数时在 [`../../testing.md`](../../testing.md) §11.1 补运行命令与环境变量 |
 | 每个阶段 | [`progress.md`](progress.md) 的阶段状态与清单，并同步 [`../progress.md`](../progress.md)；本阶段在其他文档新增记忆相关章节时，同步 [`../overview.md`](../overview.md) 开头的文档索引 |
 | 可选 | `flake.nix` 的 devShell 加入 PostgreSQL（属于代码改动，随任一阶段提交） |
