@@ -320,7 +320,7 @@ kei-plugin-persona/
 ├── cmd/devhost/     本地联调宿主（独立 Go 模块，不属于插件本体，见 testing.md §11.5）
 │   ├── go.mod       module …/cmd/devhost（replace 本仓库与同级 kei）
 │   ├── go.sum       依赖校验和
-│   ├── main.go      空导入本插件与 mock / onebot 适配器后 kei.Run
+│   ├── main.go      空导入本插件、mock / onebot 适配器与 SQL 存储方言后 kei.Run
 │   ├── config.yaml  联调配置（不含密钥与本机地址）
 │   └── .env.example 本机值与密钥的环境变量模板（复制为 .env，已忽略）
 ├── docs/            设计文档（本目录即实现口径）

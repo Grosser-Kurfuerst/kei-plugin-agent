@@ -1,6 +1,6 @@
-# memory/deploy.md — 测试部署方案
+# memory/deploy.md — 部署方案
 
-本文是接真实 QQ 与记忆库做联调测试的部署方案：依赖容器（SnowLuma + PostgreSQL）的搭建、开发机运行插件、可选的常驻部署、注意事项与验收。联调宿主 `cmd/devhost` 本身（文件、环境变量覆盖规则、运行命令、VS Code 调试）见 [`../testing.md`](../testing.md) §11.5，本文不重复。
+本文是接真实 QQ 与记忆库的部署方案：依赖容器（SnowLuma + PostgreSQL）的搭建、开发机联调运行、正式部署（kei-deps 上编译并以 systemd 常驻）、注意事项与验收。联调宿主 `cmd/devhost` 本身（文件、环境变量覆盖规则、运行命令、VS Code 调试）见 [`../testing.md`](../testing.md) §11.5，本文不重复。
 
 ## 总体结构
 
@@ -115,7 +115,7 @@ VNC 密码：启动时依次取环境变量 `VNC_PASSWD`、卷内 `config/vnc-pa
 
 **6. 网络**：`3001`、`5099`、`6081`、`5432` 只应内网可达。`pgvector` 镜像默认允许任意来源密码登录，用强密码，或在 PVE 防火墙里只放行开发机 IP。开发机自检：`nc -zv <DEPS_IP> 3001 && nc -zv <DEPS_IP> 5432`。
 
-## 开发机运行插件
+## 开发机联调运行
 
 前提：devShell 内（`GOTOOLCHAIN=local`），同级目录有 kei 检出（`../kei`，`cmd/devhost/go.mod` 的 replace 指向它）。
 
@@ -145,16 +145,47 @@ cd cmd/devhost
 
 日常迭代：改插件代码 → Ctrl+C → 重新执行上面的命令；SnowLuma 与 PostgreSQL 不用动。用 Ctrl+C（SIGINT）正常退出，不要 `kill -9`：`Stop` 会把记忆写入队列里未落库的消息刷进数据库。
 
-## 常驻部署（可选）
+## 正式部署
 
-需要 bot 长期在线（如持续积累记忆）时，把宿主编成静态二进制交给 systemd。存储为 `memory`、pgx 为纯 Go，不需要 cgo：
+bot 长期在线（持续积累记忆）时，宿主与依赖容器一起跑在 `kei-deps` 上，由 systemd 常驻。宿主仍是 `cmd/devhost`（与 kei `cmd/bot` 同构），只是换了编译位置与配置。
+
+**为什么在 kei-deps 上编译**：devhost 空导入了 kei 的 SQL 存储方言（`pkg/kei/sql`），正式部署用其中的 sqlite 持久化 `/agent` 运行时覆盖；sqlite 驱动是 cgo 版，二进制动态链接 glibc。devShell 编出的二进制链接的是 nix store 里的 glibc，拷到 Debian 上无法运行，因此在 kei-deps 上用 Debian 版 Go 官方镜像一次性编译，产物直接链接本机 glibc，kei-deps 不必安装 Go。
+
+**1. 拉取源码**（kei-deps）：从 GitHub 克隆本仓库与 kei，放在同一父目录，kei 的目录名必须是 `kei`（`cmd/devhost/go.mod` 的 replace 依赖这个相对位置）：
 
 ```bash
-cd cmd/devhost && CGO_ENABLED=0 go build -o ../../bin/devhost .   # 输出到已忽略的 bin/
-scp ../../bin/devhost config.yaml .env root@<RUN_IP>:/opt/kei/
+mkdir -p ~/kei-src && cd ~/kei-src
+git clone https://github.com/RandomLemon/kei
+git clone -b main https://github.com/Grosser-Kurfuerst/kei-plugin-agent   # -b 换成要部署的分支或 tag
 ```
 
-`/etc/systemd/system/kei.service`：
+**2. 编译**（kei-deps）：镜像的 Go 版本不低于各 `go.mod` 的 `go` 指令，发行版与 kei-deps 一致（Debian 13 即 `trixie`）。两个命名卷缓存依赖与编译结果，之后重编只需几秒：
+
+```bash
+cd ~/kei-src
+docker run --rm -v "$PWD:/src" -v kei-gomod:/go/pkg/mod -v kei-gocache:/root/.cache/go-build \
+  -w /src/kei-plugin-agent/cmd/devhost golang:1.25-trixie go build -o /src/devhost .
+sudo install -D -m 755 devhost /opt/kei/devhost
+sudo install -m 644 kei-plugin-agent/cmd/devhost/config.yaml /opt/kei/config.yaml
+```
+
+**3. 配置**：`/opt/kei/.env`（权限 600）以开发机 `.env` 为底，地址改为本机，并补上正式运行的几项：
+
+```bash
+KEI_BOTS_QQ_MAIN_WS_URL=ws://127.0.0.1:3001
+KEI_PLUGINS_PERSONA_MEMORY_DATABASE_DSN=postgres://persona:<PG_PASSWORD>@127.0.0.1:5432/persona?sslmode=disable
+KEI_AUTH_ADMIN_USERS=onebot:<你的QQ号>                # 去掉 mock:u1
+KEI_BOTS_MOCK_MAIN_ENABLED=false                      # 关闭 mock 注入口
+KEI_STORAGE_TYPE=sqlite                               # /agent 覆盖重启保留
+KEI_STORAGE_DSN=/opt/kei/kei.db
+KEI_PLUGINS_PERSONA_RANDOM_TIMEZONE=Asia/Shanghai     # 必须显式写：LXC 默认 UTC，缺省 Local 会让日界、静默时段与 {{now}} 偏 8 小时
+```
+
+- **mock 必须关**：mock 在 `127.0.0.1` 开 `/inject`，本机任何进程都能注入消息；`KEI_AUTH_ADMIN_USERS` 若还带 `mock:u1`，注入的消息还会被当作管理员。联调用的 `config.yaml` 保持 mock 开启，只在正式 `.env` 里关。
+- **存储覆盖优先于配置**：`/agent persona|on|off|policy|list` 写入 sqlite 后跨重启保留，并优先于 `config.yaml` 的 `bindings`、`group_policy`、`group_list` 等（[`../persona.md`](../persona.md) §8.3、[`../participation.md`](../participation.md) §7.8）。改了配置不生效时先查运行时覆盖：会话人格与开关用 `/agent reset` 清除，名单用 `/agent policy`、`/agent list` 改回。
+- **备份**：记忆在 PostgreSQL（`pgdata` 卷），运行时覆盖在 `/opt/kei/kei.db`，备份时两者都要带上。
+
+**4. systemd**：`/etc/systemd/system/kei.service`：
 
 ```ini
 [Unit]
@@ -174,14 +205,16 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-systemctl daemon-reload && systemctl enable --now kei && journalctl -u kei -f
+sudo systemctl daemon-reload && sudo systemctl enable --now kei && journalctl -u kei -f
 ```
 
-装在 `kei-deps` 上时 `.env` 里的地址可写 `127.0.0.1`。`EnvironmentFile` 不解析 shell 引号，值保持 `KEY=VALUE` 裸写。
+`EnvironmentFile` 不解析 shell 引号，值保持 `KEY=VALUE` 裸写。systemd 停止时发 SIGTERM，宿主照常优雅退出（记忆写入队列先落库）。
+
+**5. 升级**：`cd ~/kei-src && git -C kei pull && git -C kei-plugin-agent pull`（换版本时 `git checkout <分支或 tag>`），重新执行第 2 步的 `docker run` 与 `install devhost`，再 `sudo systemctl restart kei`。只改了 `.env` 时直接重启服务。
 
 ## 注意事项
 
-- **同一时间只跑一个宿主**：OneBot 正向 WS 服务端会把事件推给所有已连接的客户端，两个宿主连同一个 QQ 会重复回复；记忆库一个库（或 schema）只由一个 kei 进程使用，不做跨进程互斥（[`overview.md`](overview.md) §15.1）。开发机联调前先停常驻实例（`systemctl stop kei`）；要并行，开发版另配 QQ 小号（SnowLuma 支持多账号，每个账号单独端口）与独立 schema。
+- **同一时间只跑一个宿主**：OneBot 正向 WS 服务端会把事件推给所有已连接的客户端，两个宿主连同一个 QQ 会重复回复；记忆库一个库（或 schema）只由一个 kei 进程使用，不做跨进程互斥（[`overview.md`](overview.md) §15.1）。开发机联调前先停正式实例（`systemctl stop kei`）；要并行，开发版另配 QQ 小号（SnowLuma 支持多账号，每个账号单独端口）与独立 schema。
 - **mock 测记忆用独立 schema，每轮重建**：mock 的发送 ID 每次启动从 `mock-1` 重新计数，重启后同一 mock 会话里机器人自身回复会与上一轮撞去重键（[`../testing.md`](../testing.md) §11.5）。
   ```bash
   # kei-deps 上
@@ -197,7 +230,7 @@ systemctl daemon-reload && systemctl enable --now kei && journalctl -u kei -f
   ```
 - **DSN 写错不报错**：数据库不可达时 `Start` 不阻塞，后台按 1s→60s 退避重连，`/agent memory status` 一直显示「连接中」。
 - **随机插话缺省开启**（`random_probability` 0.12）：只测 @ 回复时设 `KEI_PLUGINS_PERSONA_RANDOM_ENABLED=false`；测试群只放自己与小号。
-- **`/agent` 运行时覆盖重启即丢**：kei 自身存储为 `memory`，见 [`../testing.md`](../testing.md) §11.5。
+- **联调时 `/agent` 运行时覆盖重启即丢**：`config.yaml` 的 kei 自身存储为 `memory`，见 [`../testing.md`](../testing.md) §11.5；要保留按「正式部署」第 3 步改用 sqlite。
 - **升级 SnowLuma**：`docker compose pull snowluma && docker compose up -d`，三个卷保留即免重新登录。
 
 ## 验收

@@ -16,7 +16,7 @@
 | [`progress.md`](progress.md) | — | 记忆系统实现进度：M0–M5 阶段状态、全局规则与契约的落地情况、变更记录 |
 | [`summary-layer/summary-layer.md`](summary-layer/summary-layer.md) | 16 | 摘要层实现：高层设计（模块、数据流、数据模型、门面接口、运行约束，§16.1–16.2）与 S1–S7 分阶段实现计划（每阶段的详细设计、改动与验收，§16.3） |
 | [`summary-layer/progress.md`](summary-layer/progress.md) | — | 摘要层实现进度：S1–S7 阶段状态与完成清单、评测结果摘要、偏差记录 |
-| [`deploy.md`](deploy.md) | — | 测试部署方案：依赖容器（SnowLuma + PostgreSQL）、开发机运行插件、常驻部署、注意事项、验收与排障 |
+| [`deploy.md`](deploy.md) | — | 部署方案：依赖容器（SnowLuma + PostgreSQL）、开发机联调运行、正式部署（kei-deps 上编译、sqlite 存储、systemd）、注意事项、验收与排障 |
 | 事实层、图谱与画像、治理与运维（M3–M5） | — | 待编写 |
 
 其他文档中的记忆相关章节：

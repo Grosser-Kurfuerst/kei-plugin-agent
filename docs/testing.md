@@ -295,7 +295,7 @@ PY
 - 关闭记忆：`KEI_PLUGINS_PERSONA_MEMORY_DATABASE_DSN` 留空。
 - 新增平台：在 `main.go` 补一行适配器空导入，在 `config.yaml` 的 `bots` 加一个缺省关闭的条目。
 
-kei 自身存储用 `storage.type: memory`，`/agent` 的运行时覆盖重启即丢；需要保留时按 §11.3 改用 sqlite（宿主须空导入 `pkg/kei/sql` 并开 cgo）。
+`main.go` 已空导入 kei 的 SQL 存储方言（`pkg/kei/sql`），编译需要 cgo（devShell 自带 gcc，`CGO_ENABLED` 默认开启；产物链接 nix store 的 glibc，只能在本机运行）。`config.yaml` 的 kei 自身存储仍是 `storage.type: memory`，`/agent` 的运行时覆盖重启即丢；需要保留时设 `KEI_STORAGE_TYPE=sqlite` 与 `KEI_STORAGE_DSN=<文件路径>`。
 
 mock 适配器的发送 ID 按进程从 `mock-1` 计数，而机器人自身回复以发送 ID 作去重键（`m:<MsgID>`），因此重启后同一 mock 会话里的新回复会与上一轮的旧回复撞键、计为「重复」而不落库。mock 与真实 bot 的 `conv_key` 带平台名，二者互不冲突；用 mock 测记忆层时让 DSN 指向单独的 schema 并每轮重建，见 [`memory/deploy.md`](memory/deploy.md)「注意事项」。
 
@@ -348,4 +348,4 @@ VS Code：装 direnv 扩展（`mkhl.direnv`）让编辑器加载 devShell 的 Go
 
 ### 接真实 QQ 与记忆库
 
-依赖容器（SnowLuma + PostgreSQL）的搭建、开发机 `.env`、常驻部署、注意事项与验收见 [`memory/deploy.md`](memory/deploy.md)。
+依赖容器（SnowLuma + PostgreSQL）的搭建、开发机 `.env`、正式部署、注意事项与验收见 [`memory/deploy.md`](memory/deploy.md)。
