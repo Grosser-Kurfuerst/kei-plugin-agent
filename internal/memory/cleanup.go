@@ -25,8 +25,8 @@ func (s *Service) cleanup(ctx context.Context, db *gorm.DB, _ store.Job) (store.
 		cutoff       time.Time
 	}{
 		{&store.Message{}, "mem_message", "sent_at < ?", now.AddDate(0, 0, -s.cfg.MessageRetentionDays)},
-		{&store.Summary{}, "mem_summary", "local_date < ?", store.LocalDate(now, s.cfg.Location).AddDate(0, 0, -s.cfg.SummaryRetentionDays)},
-		{&store.ConvDay{}, "mem_conv_day", "local_date < ?", store.LocalDate(now, s.cfg.Location).AddDate(0, 0, -s.cfg.SummaryRetentionDays)},
+		{&store.Summary{}, "mem_summary", "local_date < ?", store.LocalDate(now, s.cfg.Location, s.dayStart).AddDate(0, 0, -s.cfg.SummaryRetentionDays)},
+		{&store.ConvDay{}, "mem_conv_day", "local_date < ?", store.LocalDate(now, s.cfg.Location, s.dayStart).AddDate(0, 0, -s.cfg.SummaryRetentionDays)},
 		{&store.Job{}, "mem_job", "status IN ('done','dead') AND updated_at < ?", now.AddDate(0, 0, -jobRetentionDays)},
 	}
 	for _, q := range queries {
@@ -45,13 +45,13 @@ func (s *Service) startJobs(ctx context.Context, db *gorm.DB) func() {
 	done := make(chan struct{})
 	q := jobs.Queue{DB: db}
 	workers := jobs.Workers{Queue: q, Log: s.log, IdleWait: s.workerIdleWait, Handlers: map[string]jobs.Handler{"cleanup": func(ctx context.Context, j store.Job) (store.JobResult, error) { return s.cleanup(ctx, db, j) }}}
-	pipeline := summary.Pipeline{DB: db, Small: s.cfg.LLMModelSmall, Large: s.cfg.LLMModelLarge, Location: s.cfg.Location, Now: s.now, Log: s.log, Client: llm.New(llm.Config{BaseURL: s.cfg.LLMBaseURL, APIKey: s.cfg.LLMAPIKey, Headers: s.cfg.LLMHeaders, Timeout: s.cfg.LLMTimeout, JSONMode: s.cfg.LLMJSONMode}, s.httpClient, s.log)}
+	pipeline := summary.Pipeline{DB: db, Small: s.cfg.LLMModelSmall, Large: s.cfg.LLMModelLarge, Location: s.cfg.Location, DayStart: s.dayStart, Now: s.now, Log: s.log, Client: llm.New(llm.Config{BaseURL: s.cfg.LLMBaseURL, APIKey: s.cfg.LLMAPIKey, Headers: s.cfg.LLMHeaders, Timeout: s.cfg.LLMTimeout, JSONMode: s.cfg.LLMJSONMode}, s.httpClient, s.log)}
 	workers.Handlers["daily_summary"] = pipeline.Daily
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); workers.Run(jobCtx) }()
 	go func() {
 		defer close(done)
-		scheduler := jobs.Scheduler{Queue: q, Location: s.cfg.Location, DailyAt: s.cfg.DailyAt}
+		scheduler := jobs.Scheduler{Queue: q, Location: s.cfg.Location, DailyAt: s.cfg.DailyAt, DayStart: s.dayStart}
 		ticker := time.NewTicker(s.tickInterval)
 		defer ticker.Stop()
 		for {

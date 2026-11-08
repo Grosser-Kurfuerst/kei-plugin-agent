@@ -20,6 +20,7 @@ type Pipeline struct {
 	Client       *llm.Client
 	Small, Large string
 	Location     *time.Location
+	DayStart     time.Duration // 摘要日日界，见 store.LocalDate
 	Now          func() time.Time
 	Log          *slog.Logger
 }
@@ -27,7 +28,7 @@ type Pipeline struct {
 // Daily 按日期升序处理本会话最近七天未摘要的数据。
 func (p Pipeline) Daily(ctx context.Context, job store.Job) (store.JobResult, error) {
 	result := store.JobResult{}
-	today := store.LocalDate(p.Now(), p.Location)
+	today := store.LocalDate(p.Now(), p.Location, p.DayStart)
 	var days []store.ConvDay
 	err := p.DB.WithContext(ctx).Where("conv_key = ? AND local_date >= ? AND local_date < ? AND msg_count > 0 AND summarized_upto_id IS NULL", job.Payload.ConvKey, today.AddDate(0, 0, -7), today).Order("local_date").Find(&days).Error
 	if err != nil {

@@ -78,7 +78,7 @@ MCP 接入的配置键（行为见 [`mcp.md`](mcp.md) 第 14 章）：
 | `memory_ingest_batch` | int | `50` | 单批最多条数 |
 | `memory_ingest_interval` | duration | `5s` | 未满批的最长等待 |
 | `memory_queue_size` | int | `2048` | 入队队列容量 |
-| `memory_daily_at` | string | `04:00` | 每日任务时刻，按 `random_timezone` 解释 |
+| `memory_daily_at` | string | `04:00` | 每日任务时刻，同时是摘要日的日界（当天该时刻至次日该时刻算同一天，`00:00` 即自然日），按 `random_timezone` 解释；修改只影响之后写入的消息 |
 | `memory_message_retention_days` | int | `60` | 原始消息保留天数 |
 | `memory_summary_retention_days` | int | `90` | 摘要及每日进度保留天数 |
 | `memory_llm_base_url` | string | `""` | 空时继承 `llm_base_url` |

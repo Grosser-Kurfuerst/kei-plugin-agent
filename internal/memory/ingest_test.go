@@ -233,10 +233,10 @@ func TestIngestConversationAndDay(t *testing.T) {
 		t.Fatalf("last_msg_at = %v, want %v", c.LastMsgAt, base.Add(-time.Hour))
 	}
 
-	// 超前 4 分钟保留；超前 10 分钟钳制为写入时刻；上海 11-03 23:00 的消息归入 11-03。
+	// 超前 4 分钟保留；超前 10 分钟钳制为写入时刻；上海 11-04 03:00 未过 04:00 日界，归入 11-03。
 	s.Enqueue(rec("m4", base.Add(4*time.Minute), "群B"))
 	s.Enqueue(rec("m5", base.Add(10*time.Minute), ""))
-	s.Enqueue(rec("m6", time.Date(2026, 11, 3, 15, 0, 0, 0, time.UTC), ""))
+	s.Enqueue(rec("m6", time.Date(2026, 11, 3, 19, 0, 0, 0, time.UTC), ""))
 	waitFor(t, func() bool { return s.Stats().Written == 6 }, "m4–m6")
 
 	sentAt := func(msgID string) time.Time {

@@ -10,15 +10,21 @@ func TestLocalDate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	at := time.Date(2026, 11, 3, 17, 0, 0, 0, time.UTC)
-
-	got := LocalDate(at, shanghai)
-	want := time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC)
-	if !got.Equal(want) || got.Location() != time.UTC {
-		t.Fatalf("LocalDate = %v, want %v", got, want)
-	}
-
-	if got := LocalDate(at, time.UTC); !got.Equal(time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC)) {
-		t.Fatalf("LocalDate(UTC) = %v", got)
+	day := func(d int) time.Time { return time.Date(2026, 11, d, 0, 0, 0, 0, time.UTC) }
+	for _, c := range []struct {
+		name     string
+		at       time.Time
+		loc      *time.Location
+		dayStart time.Duration
+		want     time.Time
+	}{
+		{"上海自然日", time.Date(2026, 11, 3, 17, 0, 0, 0, time.UTC), shanghai, 0, day(4)},
+		{"UTC自然日", time.Date(2026, 11, 3, 17, 0, 0, 0, time.UTC), time.UTC, 0, day(3)},
+		{"日界前一分钟归前一天", time.Date(2026, 11, 3, 19, 59, 0, 0, time.UTC), shanghai, 4 * time.Hour, day(3)},
+		{"到达日界归当天", time.Date(2026, 11, 3, 20, 0, 0, 0, time.UTC), shanghai, 4 * time.Hour, day(4)},
+	} {
+		if got := LocalDate(c.at, c.loc, c.dayStart); !got.Equal(c.want) || got.Location() != time.UTC {
+			t.Errorf("%s: LocalDate = %v, want %v", c.name, got, c.want)
+		}
 	}
 }

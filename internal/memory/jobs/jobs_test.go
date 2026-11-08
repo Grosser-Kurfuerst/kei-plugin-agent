@@ -104,7 +104,7 @@ func TestQueueLifecycle(t *testing.T) {
 func TestScheduler(t *testing.T) {
 	q := testQueue(t)
 	loc := time.FixedZone("UTC+8", 8*3600)
-	s := Scheduler{Queue: q, Location: loc, DailyAt: "04:00"}
+	s := Scheduler{Queue: q, Location: loc, DailyAt: "04:00", DayStart: 4 * time.Hour}
 	now := time.Date(2026, 11, 7, 19, 59, 0, 0, time.UTC)
 	if _, err := s.Tick(t.Context(), now); err != nil {
 		t.Fatal(err)
@@ -268,7 +268,7 @@ func TestDailyScheduling(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	s := Scheduler{Queue: q, Location: time.UTC, DailyAt: "04:00"}
+	s := Scheduler{Queue: q, Location: time.UTC, DailyAt: "04:00", DayStart: 4 * time.Hour}
 	for range 2 {
 		if _, err := s.Tick(t.Context(), now); err != nil {
 			t.Fatal(err)

@@ -20,7 +20,7 @@ func (s *Service) Context(ctx context.Context, req ContextRequest) (ContextResul
 	if !ok {
 		return ContextResult{}, fmt.Errorf("memory: 会话身份不完整")
 	}
-	today := store.LocalDate(s.now(), s.cfg.Location)
+	today := store.LocalDate(s.now(), s.cfg.Location, s.dayStart)
 	var candidates []summary.Candidate
 	err := db.WithContext(ctx).Table("mem_topic AS t").Select("t.*, s.overview").Joins("JOIN mem_summary AS s ON s.id = t.summary_id").Where("t.conv_key = ? AND s.conv_key = ? AND t.local_date >= ? AND t.local_date < ? AND s.kind = 'daily'", key, key, today.AddDate(0, 0, -summary.WindowDays), today).Order("t.local_date DESC, t.id").Scan(&candidates).Error
 	if err != nil {

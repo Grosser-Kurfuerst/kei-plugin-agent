@@ -112,7 +112,7 @@ func TestRuntimeHostContext(t *testing.T) {
 	if err := store.Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
-	yesterday := store.LocalDate(time.Now(), time.UTC).AddDate(0, 0, -1)
+	yesterday := store.LocalDate(time.Now(), time.Local, 4*time.Hour).AddDate(0, 0, -1) // devhost 默认 random_timezone=Local、memory_daily_at=04:00
 	seed := store.Summary{ConvKey: "group:mock:g1", LocalDate: yesterday, Kind: "daily", Overview: "周末聚餐安排", Version: 1, Topics: []store.Topic{{ConvKey: "group:mock:g1", LocalDate: yesterday, TopicKey: "runtime:dinner", Title: "周末聚餐", Summary: "周六18点在城东餐厅聚餐，预算人均100元。", Importance: 0.9}}}
 	if err := db.WithContext(t.Context()).Create(&seed).Error; err != nil {
 		t.Fatal(err)

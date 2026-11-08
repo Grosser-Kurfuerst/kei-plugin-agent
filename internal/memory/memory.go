@@ -58,6 +58,7 @@ type Service struct {
 	workerStopTimeout  time.Duration
 	workerIdleWait     time.Duration
 	now                func() time.Time
+	dayStart           time.Duration // 摘要日日界，由 DailyAt 解析
 	ingestWriteTimeout time.Duration
 	flushTimeout       time.Duration
 	pingTimeout        time.Duration
@@ -109,6 +110,7 @@ func New(cfg Config, log *slog.Logger, httpClient *http.Client) *Service {
 		queue:              make(chan Record, cfg.QueueSize),
 		httpClient:         httpClient,
 		now:                time.Now,
+		dayStart:           parseDayStart(cfg.DailyAt),
 		ingestWriteTimeout: ingestWriteTimeout,
 		flushTimeout:       flushTimeout,
 		pingTimeout:        pingTimeout,
@@ -279,6 +281,12 @@ func (s *Service) setState(state string) {
 	if !s.stopped {
 		s.state = state
 	}
+}
+
+// parseDayStart 把 HH:MM 换算成距零点的时长；格式已由根包配置校验。
+func parseDayStart(dailyAt string) time.Duration {
+	t, _ := time.Parse("15:04", dailyAt)
+	return time.Duration(t.Hour())*time.Hour + time.Duration(t.Minute())*time.Minute
 }
 
 func (s *Service) closeDB(db *gorm.DB) {

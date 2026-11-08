@@ -60,9 +60,10 @@ type ConvDay struct {
 // TableName 返回表名。
 func (ConvDay) TableName() string { return "mem_conv_day" }
 
-// LocalDate 把时刻 t 换算成 loc 下的本地日期，返回该日期的 UTC 零点，供 date 列存取。
-func LocalDate(t time.Time, loc *time.Location) time.Time {
-	y, m, d := t.In(loc).Date()
+// LocalDate 把时刻 t 换算成 loc 下的摘要日，返回该日期的 UTC 零点，供 date 列存取。
+// dayStart 是日界距零点的时长：本地当天 dayStart 至次日 dayStart 算同一天，0 即自然日。
+func LocalDate(t time.Time, loc *time.Location, dayStart time.Duration) time.Time {
+	y, m, d := t.In(loc).Add(-dayStart).Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
 

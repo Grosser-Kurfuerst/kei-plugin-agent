@@ -150,7 +150,7 @@ kei 自己的 SQL 存储后端也用 GORM，两边写法一致。
 
 调度协程只负责「什么时候产生后台任务」，任务本身由 worker 协程执行。每次 tick 做这些事：
 
-- **每日任务链**：每天 `memory_daily_at`（默认 04:00，按 `random_timezone`，与 `{{now}}` 渲染一致）之后，为有未摘要日期的会话创建任务链（日摘要 → 事实抽取 → 图谱 → 画像）。日摘要任务按日期升序补齐最近 7 天内漏跑的日期。
+- **每日任务链**：每天 `memory_daily_at`（默认 04:00，按 `random_timezone`，与 `{{now}}` 渲染一致）之后，为有未摘要日期的会话创建任务链（日摘要 → 事实抽取 → 图谱 → 画像）。该时刻也是摘要日的日界：当天该时刻至次日该时刻的消息算同一天，到点时前一个摘要日刚好结束（[`summary-layer/summary-layer.md`](summary-layer/summary-layer.md) §16.2.3）。日摘要任务按日期升序补齐最近 7 天内漏跑的日期。
 - **全局任务**：每天一次，清理过期数据，并重算边的衰减分数（M4）。
 
 不经过调度的任务：滚动摘要在写入消息时按条数触发（[`summary-layer/summary-layer.md`](summary-layer/summary-layer.md) §16.3.8）；`memory__save` 在工具调用时直接建任务。

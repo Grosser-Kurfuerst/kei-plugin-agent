@@ -109,7 +109,7 @@ func (s *Service) prepare(records []Record) ingestBatch {
 			ReplyTo:     r.ReplyTo,
 			Mentions:    mentions,
 			SentAt:      at,
-			LocalDate:   store.LocalDate(at, s.cfg.Location),
+			LocalDate:   store.LocalDate(at, s.cfg.Location, s.dayStart),
 			ReceivedAt:  now,
 		})
 

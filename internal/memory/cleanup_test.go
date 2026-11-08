@@ -15,7 +15,7 @@ func TestScheduledCleanupAndRecovery(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	for _, days := range []int{-100, 0} {
-		msg := store.Message{Mentions: []string{}, ConvKey: "c", DedupeKey: time.Duration(days).String(), SentAt: now.AddDate(0, 0, days), LocalDate: store.LocalDate(now.AddDate(0, 0, days), time.UTC), ReceivedAt: now}
+		msg := store.Message{Mentions: []string{}, ConvKey: "c", DedupeKey: time.Duration(days).String(), SentAt: now.AddDate(0, 0, days), LocalDate: store.LocalDate(now.AddDate(0, 0, days), time.UTC, 0), ReceivedAt: now}
 		if err := db.WithContext(t.Context()).Create(&msg).Error; err != nil {
 			t.Fatal(err)
 		}
@@ -36,6 +36,7 @@ func TestScheduledCleanupAndRecovery(t *testing.T) {
 	}
 	s := startService(t, testConfig(t, dsn), func(s *Service) {
 		s.cfg.DailyAt = "00:00"
+		s.dayStart = 0
 		s.tickInterval = 10 * time.Millisecond
 		s.workerIdleWait = 10 * time.Millisecond
 	})

@@ -14,8 +14,8 @@ import (
 func TestContextScopeWindowAndLifecycle(t *testing.T) {
 	dsn := memtest.NewDB(t)
 	cfg := testConfig(t, dsn)
-	now := time.Date(2026, 11, 8, 17, 0, 0, 0, time.UTC) // 上海已是11月9日。
-	today := store.LocalDate(now, cfg.Location)
+	now := time.Date(2026, 11, 8, 17, 0, 0, 0, time.UTC) // 上海11月9日01:00，未过04:00日界，仍属11月8日摘要日。
+	today := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
 	s := startService(t, cfg, func(s *Service) { s.now = func() time.Time { return now } })
 	db := openDB(t, dsn)
 	for _, spec := range []struct {

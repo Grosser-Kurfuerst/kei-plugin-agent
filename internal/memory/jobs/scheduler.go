@@ -12,6 +12,7 @@ type Scheduler struct {
 	Queue    Queue
 	Location *time.Location
 	DailyAt  string
+	DayStart time.Duration // 摘要日日界，与 DailyAt 一致
 }
 
 // Tick 刷新计数，并在每日指定时间后创建任务。
@@ -29,7 +30,7 @@ func (s Scheduler) Tick(ctx context.Context, now time.Time) (Counts, error) {
 	if err != nil {
 		return counts, err
 	}
-	today := store.LocalDate(now, s.Location)
+	today := store.LocalDate(now, s.Location, s.DayStart)
 	var convs []string
 	if err = s.Queue.DB.WithContext(ctx).Model(&store.ConvDay{}).Distinct("conv_key").Where("local_date >= ? AND local_date < ? AND msg_count > 0 AND summarized_upto_id IS NULL", today.AddDate(0, 0, -7), today).Pluck("conv_key", &convs).Error; err != nil {
 		return counts, err

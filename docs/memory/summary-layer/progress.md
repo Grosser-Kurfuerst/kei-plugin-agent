@@ -78,7 +78,7 @@
 
 ### S6 滚动摘要与显式查询（§16.3.8）
 
-- [ ] 摘要日日界改为 `memory_daily_at`（§16.2.3），迁移 `store.LocalDate` 全部调用点
+- [x] 摘要日日界改为 `memory_daily_at`（§16.2.3），迁移 `store.LocalDate` 全部调用点
 - [ ] 滚动摘要触发与流水线、读取侧滚动候选与短期窗口去重
 - [ ] `QuerySummaries`、`memory__summary`、`toolsFor` 迁移
 - [ ] 配置键与人格 `tools` 校验
