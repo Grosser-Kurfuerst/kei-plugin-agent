@@ -194,9 +194,21 @@ persona: persona=tsundere 来源=override · 预设=[default tsundere]
 - `{{now}}` 用 `random_timezone` 解析出的时区。
 - 渲染结果末尾追加**本轮要求块**（见下）。块内的哨兵是**字面量**而非占位符，不做二次替换；默认模板不再自带「接话时机 / 不插话输出哨兵」两条，这两条统一由本轮要求块给出，`{{skip_token}}` 占位符仍对自定义模板有效。
 
+**记忆块**（S5，逐字格式；数据选取见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.7）
+
+```text
+# 记忆（仅供参考，可能过时；与当前对话冲突时以当前对话为准）
+[近期重点]
+- [11-03 概况] ……
+- [11-03] 标题：摘要（未决：……）
+- [11-02] 标题：一句话
+```
+
+只读取当前会话最近三天的日摘要；按重要性、时间衰减与关键词相关度选择，正文在 `memory_context_max_chars` 预算内。无内容或读取失败时不输出记忆块；本轮要求块始终在最后。读取在异步生成路径内，默认 `1500ms` 超时，随机轮次同样读取。
+
 **本轮要求块（追加在渲染结果末尾，模板不可覆盖）**
 
-`system` 的最终内容 = `persona_template` 渲染结果 + 本轮要求块，两者之间空一行。块由插件按轮次与 `llm_skip_enabled` 生成：**寻址轮次**（私聊 / @ 本机器人 / 引用本机器人 / 命中 `trigger_keywords`，轮次判定见 [`participation.md`](participation.md) §7.5）无论开关如何都不向模型提供 skip 出口，必须回一句；**随机轮次**仅在 `llm_skip_enabled=true`（默认）时允许输出哨兵，关闭时同样必须回一句。模板自带的同类写法（如「决定不插话时，只输出 `{{skip_token}}`」）与块冲突时**以块为准**。
+`system` 的最终内容 = `persona_template` 渲染结果 + 记忆块（有内容时）+ 本轮要求块，各块之间空一行。没有记忆时保持原有渲染结果逐字不变。块由插件按轮次与 `llm_skip_enabled` 生成：**寻址轮次**（私聊 / @ 本机器人 / 引用本机器人 / 命中 `trigger_keywords`，轮次判定见 [`participation.md`](participation.md) §7.5）无论开关如何都不向模型提供 skip 出口，必须回一句；**随机轮次**仅在 `llm_skip_enabled=true`（默认）时允许输出哨兵，关闭时同样必须回一句。模板自带的同类写法（如「决定不插话时，只输出 `{{skip_token}}`」）与块冲突时**以块为准**。
 
 三种取值的逐字文本（`<skip>` = 当前人格生效的 skip 哨兵；块以 `\n` 开头、以 `\n` 结尾）：
 

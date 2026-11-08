@@ -17,7 +17,7 @@
 | S2 根包接入采集 | M1 | 已完成 | 2026-11-05 | 2026-11-05 | `feat/memory` 8568c53 … d14dddf | 运行验收用最小 kei 宿主 + mock 适配器 + 本地 PostgreSQL 走通；golangci-lint 0 issues；2026-11-08 在 SnowLuma + PostgreSQL 测试部署（[`../deploy.md`](../deploy.md)）上复验通过：部署验收、运行中断库、启动时库不可达与恢复、DB 单测 |
 | S3 任务框架与清理 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `feat(memory): add scheduled jobs and retention cleanup` | 真实宿主分钟调度与 status 验收通过；质量门全绿，review 2 轮通过 |
 | S4 日摘要流水线 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `4058e6d` + `fix(memory): bound summary message and overlap budgets` | 预算规则已确认；真实会话日与真实模型抽验通过；本轮质量门全绿、review 1 轮通过 |
-| S5 读取与注入 | M2 | 未开始 | — | — | — | — |
+| S5 读取与注入 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `feat(memory): inject recent daily summaries into replies` | 读取与注入、隔离与降级测试、真实宿主验收通过；review 2 轮通过 |
 | S6 滚动摘要与显式查询 | M2 | 未开始 | — | — | — | — |
 | S7 评测与调参 | M2 | 未开始 | — | — | — | — |
 
@@ -68,13 +68,13 @@
 
 ### S5 读取与注入（§16.3.7）
 
-- [ ] `Context`、关键词相关度与打分、选取与行渲染
-- [ ] 根包取上下文、记忆块渲染、`renderSystemPrompt` 迁移
-- [ ] 配置键
-- [ ] 验收表全部通过
-- [ ] 运行验收：能接上前几天的话题；数据库宕机时照常回复
-- [ ] 质量门全绿
-- [ ] 文档同步：`configuration.md`、`persona.md` §8.5、`architecture.md` 第 2 章
+- [x] `Context`、关键词相关度与打分、选取与行渲染
+- [x] 根包取上下文、记忆块渲染、`renderSystemPrompt` 迁移
+- [x] 配置键
+- [x] 验收表全部通过
+- [x] 运行验收：能接上前几天的话题；数据库宕机时照常回复
+- [x] 质量门全绿
+- [x] 文档同步：`configuration.md`、`persona.md` §8.5、`architecture.md` 第 2 章
 
 ### S6 滚动摘要与显式查询（§16.3.8）
 
@@ -110,6 +110,8 @@
 | 2026-11-05 | S2 | 实现时补全的细节：`p.mem.Start` 放在 MCP 目录加载成功之后；`memEpoch` 在 `Start` 记录；`/agent memory` 不建会话状态，缺参或参数非法回用法文本；自身回复的 `Conv` 取自发送目标（与 `channelState` 同源） | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.4 |
 | 2026-11-08 | S1 | 远程 PostgreSQL 上 `TestConcurrentEnqueueAndStop` 稳定失败（`Written` 少一批、`Duplicates` 多一批）：`Stop` 取消 ctx 时正在 COMMIT 的批次服务端已提交、客户端报错，flush 重写后整批记成重复。改为 `Stop` 后正在写的批次与 flush 共用 `flushTimeout` 收尾时限，不再立即打断 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.3 |
 
+| 2026-11-08 | S5 | `windowDays` 导出为 `WindowDays`，让日摘要延续与读取共用三日窗口；`memoryContext` 不保留本阶段不使用的轮次参数，随机与寻址均走同一路径 | 已同步到设计文档 §16.3.6–16.3.7 与全部调用点 |
+
 ## 迭代验证记录
 
 - S3（2026-11-08）：Nix devShell / `GOTOOLCHAIN=local` 下 `gofmt`、build、vet、带 PostgreSQL 独立 schema 的 test / race、lint 全通过（0 issues）。`TestRuntimeHostCleanup` 用真实 devhost、mock 控制面与分钟时钟，60.10s 通过：cleanup 完成且 status 显示任务行。review 2 轮，最终 `NO_BLOCKING_ISSUES`；修复状态落库失败重试、未启用记忆时的新增配置校验，补齐清理与停止验证；无未复评修复。
@@ -117,3 +119,5 @@
 - S4（2026-11-08，代码提交）：Nix devShell 下 build、vet、带 PostgreSQL 独立 schema 的 test / race、lint 全通过，0 issues，gofmt / diff check 干净。review 2 轮，代码最终 `NO_BLOCKING_ISSUES`；修复 JSON 修复响应的旧字段残留和任务超时时已完成调用的用量漏记，均有回归测试且经复评。未完成真实数据验收，阶段保持进行中；S5 尚未开始。
 
 - S4 收尾（2026-11-08）：按用户补充要求实现切片预算与单条截断规则，build / vet / 全仓 PostgreSQL race / lint 全过，0 issues。真实数据验收与来源抽读完成；本轮 review 1 轮，最终 `NO_BLOCKING_ISSUES`，无未复评修复。
+
+- S5（2026-11-08）：可信 Scene 与当前会话最近三日日摘要读取、关键词与时间打分、去重、预算和记忆块注入已完成；随机轮次同样读取，未启用时提示词逐字保持不变。Nix devShell 中 build / vet / 带 PostgreSQL 独立 schema 的全仓 race / lint 全过，0 issues；gofmt / diff check 干净。`TestRuntimeHostContext` 使用真实 devhost、现有聊天模型与固定合成聚餐摘要，debug 提示词含记忆块且回复提到聚餐；仅切断该测试宿主的数据库链路后仍正常回复并记录读取告警（未停止共享 PostgreSQL）。review 共 2 轮，最终 `NO_BLOCKING_ISSUES`；首轮功能评审通过，修正测试矩阵表格格式后通过收尾复核。最终源码的真实宿主验收复跑 2.28s 通过。无第三轮后未复评修复。

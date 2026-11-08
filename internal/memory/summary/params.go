@@ -9,8 +9,16 @@ const (
 	sliceOverlapMsgs = 10
 	jobMaxSlices     = 80
 	sliceConcurrency = 4
-	windowDays       = 3
 	llmTemperature   = 0.2
 )
 
 const fillerWords = "|嗯|嗯嗯|哦|噢|啊|哈|呵|草|艹|好|好的|行|对|ok|1|"
+
+const (
+	tSummary   = 3.0
+	scoreAlpha = 1.0
+	scoreTheta = 0.25
+)
+
+// WindowDays 是日摘要延续判断与自动上下文共同使用的日期窗口。
+const WindowDays = 3

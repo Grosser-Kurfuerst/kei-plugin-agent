@@ -15,7 +15,7 @@
 - 提供 `/agent` 管理命令切换人格、开关、名单策略与查看状态。
 - 用 `bot.Storage` 持久化每会话的运行时覆盖（人格、开关）与插件级名单策略。
 - 通过一个外部 MCP 服务接入工具，由模型按需调用，管理员可刷新工具目录（[`mcp.md`](mcp.md) 第 14 章）。
-- 配置 `memory_database_dsn` 后，把放行的群聊 / 私聊消息与机器人自身回复异步写入 PostgreSQL，`/agent memory status` 查看写入计数（记忆子系统，[`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4）。
+- 配置 `memory_database_dsn` 后，把放行的群聊 / 私聊消息与机器人自身回复异步写入 PostgreSQL，后台生成日摘要并在回复前读取近期重点，`/agent memory status` 查看写入及任务计数（记忆子系统，[`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4）。
 
 **不做什么**
 
@@ -48,7 +48,7 @@
                      │  定时器触发 onBatch
                      ▼
         后台生成协程 generate（由 Start 阶段保存的插件级 ctx 驱动）
-        · 取全局信号量 → 解析人格 → 渲染提示词 → 调用 LLM（启用工具时含工具调用循环）
+        · 取全局信号量 → 解析人格 → 裁剪历史 → 限时读取本会话记忆 → 渲染提示词 → 调用 LLM（启用工具时含工具调用循环）
         · 回复清洗 → BotAPI.Send → 回写历史/计数器
                      │
                      ▼
@@ -291,7 +291,7 @@ kei-plugin-persona/
 ├── mcp.go           MCP 客户端、协议、工具发现、调用与结果转换
 ├── commands.go      /agent 管理命令
 ├── policy.go        插件级名单策略：模式判定、/agent policy|list 渲染、policy 键读写
-├── memory.go        memoryBackend 接口；入站消息与自身回复的记忆记录构造
+├── memory.go        memoryBackend 接口；记忆记录构造、限时上下文读取与记忆块渲染
 ├── config_test.go   配置解析与校验单测
 ├── decision_test.go 决策模型单测（过滤/寻址/随机/窗口/epoch/名单/私聊/记忆入队）
 ├── llm_test.go      LLM 客户端单测（httptest.Server）
@@ -308,6 +308,7 @@ kei-plugin-persona/
 │   ├── convkey.go   conv_key 与去重键推导
 │   ├── memory.go    Config、Service、Start/Stop/Stats、连库与迁移状态机
 │   ├── cleanup.go   过期清理、任务调度与 worker 生命周期
+│   ├── read.go     Context：按可信会话读取日摘要并组装近期重点
 │   ├── summary/     切片、预过滤、提示词、来源校验、话题合并与日摘要流水线
 │   ├── llm/         后台 JSON 客户端，复用宿主 Transport
 │   ├── jobs/        持久化队列、调度与 worker 池
@@ -339,8 +340,10 @@ kei-plugin-persona/
 | `mcp.go` | `mcpClient`/`mcpTool`：初始化、HTTP/SSE、会话、工具列表与调用、结果转换；除内置记忆工具外的唯一工具来源，见 [`mcp.md`](mcp.md) 第 14 章。 |
 | `commands.go` | `/agent status|persona|on|off|reset|policy|list|tools|memory` 子命令实现。 |
 | `policy.go` | 插件级名单策略：`policyState`/`policyValue`、四值模式放行判定、`policy` 键读写、`/agent policy|list` 报告渲染。 |
-| `memory.go` | `memoryBackend` 接口（`*memory.Service` 实现，测试注入 `fakeMemory`）；`memoryRecordFromEvent` / `memoryRecordFromReply` 构造入站消息与自身回复的记忆记录，见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4。 |
+| `memory.go` | `memoryBackend` 接口（`*memory.Service` 实现，测试注入 `fakeMemory`）；`memoryRecordFromEvent` / `memoryRecordFromReply` 构造入站消息与自身回复的记忆记录；`memoryContext` 限时读取当前会话记忆，`renderMemoryBlock` 渲染记忆块，见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4。 |
 | `internal/memory/memory.go` | 记忆子系统入口 `Service`：后台连库（Ping 指数退避）→ 迁移 → 写循环，`Stop` 关闭准入并在上界内写完队列，见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.3。 |
+| `internal/memory/read.go` | `Context` 按可信会话与日期窗口读取日摘要，交给话题打分和预算选取；未就绪返回 `ErrNotReady`。 |
+| `internal/memory/summary/scoring.go` | 关键词 bigram 相关度、话题打分与去重、概况及摘要行渲染和正文预算。 |
 | `internal/memory/ingest.go` | 非阻塞 `Enqueue`、攒批、每批一个事务（会话 upsert、消息按去重键插入、每日计数累加）、失败重试与停止前 flush。 |
 | `internal/memory/convkey.go` | `conv_key`（群不含机器人 ID，私聊含）与去重键（`m:<MsgID>` / `e:<EventID>`）推导与合法性校验。 |
 | `internal/memory/store/` | 模型与表名、`LocalDate` 换算、事务内幂等迁移（AutoMigrate + 索引）、只记出错与慢查询且不输出 SQL 的 gorm 日志适配。 |

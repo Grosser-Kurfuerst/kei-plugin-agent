@@ -29,9 +29,9 @@ M0 剩余工作：事实层、图谱层、治理层的设计文档。摘要层�
 | --- | --- | --- |
 | 依赖放开：GORM 两个包只允许 `internal/memory` 使用，pgvector-go M3 起使用 | [`../../AGENTS.md`](../../AGENTS.md) §2.2 | 已写入 |
 | 工具来源口径：只内置记忆工具，其余经 MCP | [`../mcp.md`](../mcp.md) §13.5 | 已写入 |
-| `memory_*` 配置键与校验 | [`../configuration.md`](../configuration.md) §10.1、§10.4 | 随各阶段写入；S2–S4 的采集、调度、保留期与 LLM 键已写入 |
+| `memory_*` 配置键与校验 | [`../configuration.md`](../configuration.md) §10.1、§10.4 | 随各阶段写入；S2–S5 的采集、调度、保留期、LLM 与上下文键已写入 |
 | 生命周期、协程表、目录结构 | [`../architecture.md`](../architecture.md) 第 1、3、5 章 | 随各阶段写入；第 5 章目录结构已随 S1 写入，第 1 章、§3.1、§3.2 与根包 `memory.go` 已随 S2 写入 |
-| `/agent memory status` 输出行、记忆块格式 | [`../persona.md`](../persona.md) §8.4、§8.5 | 随各阶段写入；S3 的 status 三行与用法文本已写入，记忆块格式待 S5 |
+| `/agent memory status` 输出行、记忆块格式 | [`../persona.md`](../persona.md) §8.4、§8.5 | 随各阶段写入；S3 的 status 三行与用法文本已写入，S5 的记忆块位置与格式已写入 |
 | `go.mod` 引入 GORM | [`../../go.mod`](../../go.mod) | 已引入（S1：`gorm.io/gorm` v1.31.2、`gorm.io/driver/postgres` v1.6.3） |
 
 ## 变更记录
@@ -41,4 +41,4 @@ M0 剩余工作：事实层、图谱层、治理层的设计文档。摘要层�
 | 2026-11-05 | 新建本文。摘要层方案定稿：写在插件内 `internal/memory`，用 GORM + PostgreSQL；摘要层不使用向量与数据库扩展，pgvector 与 embedding 推迟到 M3 |
 | 2026-11-05 | 摘要层精简：按单实例部署去掉跨进程互斥（迁移锁、调度锁、租约与心跳），改为启动时重置执行中任务；日摘要改为每会话一个任务、按日期升序逐天处理，去掉 `ErrDefer` 与迟到重算；去掉引用上下文、熔断器、`continuity` 打分、`memory_random_rounds` 与 `Layer`；`memory_worker_concurrency` 改为常量；保留滚动摘要 |
 
-| 2026-11-08 | S3–S4 已完成；切片按正文 rune 预算优先，单条上限 2000（含省略号），最多十条重叠；真实会话日与真实模型运行抽验通过 |
+| 2026-11-08 | S3–S5 已完成；切片按正文 rune 预算优先，单条上限 2000（含省略号），最多十条重叠；真实会话日与真实模型运行抽验、真实宿主记忆注入及数据库链路故障降级验收通过 |

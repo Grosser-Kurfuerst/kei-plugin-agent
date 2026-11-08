@@ -46,6 +46,15 @@ go test ./internal/memory/summary -run TestRuntimeDailySummary -v -count=1
 
 测试把一个真实会话日回放为待摘要日期，不改源库；输出生成结果及来源归属校验，供人工抽读。这是运行抽验，S7 的 20 日正式评测另行执行。
 
+S5 真实宿主注入与故障验收（需已配置可用聊天 LLM；只发送合成聚餐数据）：
+
+```bash
+go build -C cmd/devhost -o /tmp/persona-memory-devhost .
+PERSONA_MEMORY_CONTEXT_HOST_BINARY=/tmp/persona-memory-devhost go test ./internal/memory -run TestRuntimeHostContext -v -count=1
+```
+
+测试使用独立 schema，通过仅供该宿主使用的 TCP 转发切断数据库链路，确认 debug 提示词含记忆块、模型回复提及摘要，故障后仍回复；不会停止共享 PostgreSQL，也不连接 QQ。
+
 ## 11.2 单元测试矩阵
 
 ```text
@@ -53,9 +62,10 @@ go test ./internal/memory/summary -run TestRuntimeDailySummary -v -count=1
 ```
 
 | 用例 | 断言 |
-| S4 LLM 客户端 | 凭据及 JSON 模式、宿主超时隔离、网络退避、结构修复与 token 统计 |
-| S4 日摘要 | 切片与预过滤、来源及归属校验、确定性合并、跨天延续、失败日期重试、幂等覆盖与空结果清理 |
 | --- | --- |
+| S4 LLM 客户端 | 凭据及 JSON 模式、宿主超时隔离、网络退避、结构修复与 token 统计 |
+| S5 读取与注入 | 最近三天日摘要、可信会话隔离、关键词及时间打分、话题去重、行预算、提示词位置、随机轮次读取、错误及超时降级 |
+| S4 日摘要 | 切片与预过滤、来源及归属校验、确定性合并、跨天延续、失败日期重试、幂等覆盖与空结果清理 |
 | 无发送者 | 决策结果 `reason=no_sender` |
 | 非群聊（群 Handler 收到 `Kind=private`） | 决策结果 `reason=not_group` |
 | 非私聊（私聊 Handler 收到 `Kind=group`） | 决策结果 `reason=not_private` |

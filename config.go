@@ -362,9 +362,10 @@ func loadConfig(c *bot.Config) (*config, error) {
 // readMemoryConfig 读取并校验 memory_* 键（Location 由调用方填）。
 func readMemoryConfig(r cfgReader, cfg *config) (memory.Config, error) {
 	m := memory.Config{
-		DatabaseDSN:          r.str("memory_database_dsn", ""),
-		IngestInterval:       r.dur("memory_ingest_interval", 5*time.Second),
-		DailyAt:              r.str("memory_daily_at", "04:00"),
+		DatabaseDSN:    r.str("memory_database_dsn", ""),
+		IngestInterval: r.dur("memory_ingest_interval", 5*time.Second),
+		DailyAt:        r.str("memory_daily_at", "04:00"),
+		ContextTimeout: 1500 * time.Millisecond, ContextMaxChars: 1200,
 		MessageRetentionDays: 60, SummaryRetentionDays: 90,
 	}
 	var err error
@@ -447,6 +448,16 @@ func readMemoryConfig(r cfgReader, cfg *config) (memory.Config, error) {
 	}
 	if m.LLMTimeout <= 0 {
 		return m, cfgErr("memory_llm_timeout", m.LLMTimeout.String(), "必须 > 0")
+	}
+	m.ContextTimeout = r.dur("memory_context_timeout", 1500*time.Millisecond)
+	if m.ContextTimeout <= 0 {
+		return m, cfgErr("memory_context_timeout", m.ContextTimeout.String(), "必须 > 0")
+	}
+	if m.ContextMaxChars, err = r.intKey("memory_context_max_chars", 1200, "必须 >= 1"); err != nil {
+		return m, err
+	}
+	if err = needMinInt("memory_context_max_chars", m.ContextMaxChars, 1); err != nil {
+		return m, err
 	}
 	return m, nil
 }

@@ -399,9 +399,10 @@ func (p *Plugin) generate(st *channelState, epoch uint64, history []Turn, round 
 	mustReply := pendingKind == "addressed"
 
 	trimmed := p.trimHistory(history)
+	memBlock := p.memoryContext(st, trimmed)
 	slots := p.fetchVisionSlots(p.ctx, p.selectVisionSlots(trimmed))
 	req := completionRequest{
-		System:      p.renderSystemPrompt(personaName, st, history, mustReply),
+		System:      p.renderSystemPrompt(personaName, st, history, mustReply, memBlock),
 		User:        p.renderUserContent(chatKind, trimmed, slots),
 		Temperature: pf.Temperature,
 		MaxTokens:   pf.MaxTokens,

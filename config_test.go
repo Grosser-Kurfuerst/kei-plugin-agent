@@ -397,3 +397,32 @@ func TestMemoryLLMFallback(t *testing.T) {
 		}
 	}
 }
+
+func TestMemoryContextConfig(t *testing.T) {
+	for _, tc := range []struct {
+		key    string
+		value  any
+		reason string
+	}{{"memory_context_timeout", "0s", "必须 > 0"}, {"memory_context_max_chars", 0, "必须 >= 1"}, {"memory_context_max_chars", "invalid", "必须 >= 1"}} {
+		c := baseConfigMap("http://x")
+		c["memory_database_dsn"] = "test"
+		c[tc.key] = tc.value
+		_, err := loadConfig(bot.NewConfig(c))
+		if err == nil || !strings.Contains(err.Error(), tc.reason) {
+			t.Fatalf("%s: %v", tc.key, err)
+		}
+		delete(c, "memory_database_dsn")
+		if _, err = loadConfig(bot.NewConfig(c)); err != nil {
+			t.Fatalf("未启用记忆时校验了上下文配置：%v", err)
+		}
+	}
+	c := baseConfigMap("http://x")
+	c["memory_database_dsn"] = "test"
+	cfg, err := loadConfig(bot.NewConfig(c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.memory.ContextTimeout != 1500*time.Millisecond || cfg.memory.ContextMaxChars != 1200 {
+		t.Fatal("上下文默认值错误")
+	}
+}

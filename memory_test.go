@@ -1,6 +1,7 @@
 package persona
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -124,5 +125,45 @@ func TestMemoryRecordFromReply(t *testing.T) {
 	}
 	if r1.Mentions != nil {
 		t.Errorf("无 @ 时 Mentions 应为空, got %v", r1.Mentions)
+	}
+}
+
+func TestMemoryContextRequestAndRendering(t *testing.T) {
+	mem := &fakeMemory{contextFn: func(ctx context.Context, req memory.ContextRequest) (memory.ContextResult, error) {
+		if _, ok := ctx.Deadline(); !ok {
+			t.Error("读取上下文缺少超时")
+		}
+		return memory.ContextResult{Blocks: []memory.Block{{Title: "近期重点", Lines: []string{"[11-07] 聚餐：周末订桌"}}}}, nil
+	}}
+	env := newTestEnvMem(t, nil, nil, nil, nil, mem)
+	st := &channelState{platform: "mock", botID: "bot1", channelID: "g1", kind: bot.MessageGroup}
+	history := []Turn{{Text: "最早"}, {Text: "机器人", Self: true}, {Text: "倒数第三"}, {Text: strings.Repeat("字", 150)}, {Text: "最新"}}
+	block := env.p.memoryContext(st, history)
+	want := "# 记忆（仅供参考，可能过时；与当前对话冲突时以当前对话为准）\n[近期重点]\n- [11-07] 聚餐：周末订桌"
+	if block != want {
+		t.Fatalf("记忆块 %q", block)
+	}
+	mem.mu.Lock()
+	req := mem.requests[0]
+	mem.mu.Unlock()
+	if req.Scene.Conv.Type != memory.ConvTypeGroup || req.Scene.Conv.ChannelID != "g1" || req.BudgetChars != 1200 || len(req.Queries) != 3 || req.Queries[0] != "最新" || runeCount(req.Queries[1]) != 100 || req.Queries[2] != "倒数第三" {
+		t.Fatalf("请求 %+v", req)
+	}
+	st.kind = bot.MessagePrivate
+	st.peerUserID = "u9"
+	env.p.memoryContext(st, nil)
+	mem.mu.Lock()
+	req = mem.requests[1]
+	mem.mu.Unlock()
+	if req.Scene.Conv.Type != memory.ConvTypePrivate || req.Scene.Conv.PeerUserID != "u9" || req.Scene.Conv.BotID != "bot1" {
+		t.Fatal(req.Scene)
+	}
+	if renderMemoryBlock(memory.ContextResult{}) != "" || renderMemoryBlock(memory.ContextResult{Blocks: []memory.Block{{Title: "近期重点"}}}) != "" {
+		t.Fatal("无内容也渲染记忆标题")
+	}
+	env.p.cfg.personaTemplate = "模板\n"
+	prompt := env.p.renderSystemPrompt("default", st, nil, true, block)
+	if want := "模板\n\n" + block + "\n" + replyRule("[SKIP]", true, true); prompt != want {
+		t.Fatalf("提示词位置或空行错误：%q", prompt)
 	}
 }

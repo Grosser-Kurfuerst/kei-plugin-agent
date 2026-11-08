@@ -22,13 +22,15 @@ import (
 
 // fakeMemory 是记录调用的 memoryBackend。
 type fakeMemory struct {
-	mu      sync.Mutex
-	records []memory.Record
-	reject  bool // 为真时 Enqueue 返回 false 且不记录
-	started bool
-	stopped bool
-	onStop  func() // Stop 时回调，供断言调用时机
-	stats   memory.Stats
+	mu        sync.Mutex
+	records   []memory.Record
+	reject    bool // 为真时 Enqueue 返回 false 且不记录
+	started   bool
+	stopped   bool
+	onStop    func() // Stop 时回调，供断言调用时机
+	stats     memory.Stats
+	contextFn func(context.Context, memory.ContextRequest) (memory.ContextResult, error)
+	requests  []memory.ContextRequest
 }
 
 func (m *fakeMemory) Start(context.Context) {
@@ -61,6 +63,17 @@ func (m *fakeMemory) Stats() memory.Stats {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.stats
+}
+
+func (m *fakeMemory) Context(ctx context.Context, req memory.ContextRequest) (memory.ContextResult, error) {
+	m.mu.Lock()
+	m.requests = append(m.requests, req)
+	fn := m.contextFn
+	m.mu.Unlock()
+	if fn != nil {
+		return fn(ctx, req)
+	}
+	return memory.ContextResult{}, nil
 }
 
 // snapshot 返回已入队记录的副本。

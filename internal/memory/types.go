@@ -1,6 +1,9 @@
 package memory
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 // 会话类型，取值见 Conv.Type。
 const (
@@ -55,3 +58,25 @@ type Stats struct {
 	Dropped, FailedBatches             int64
 	QueueLen, QueueCap                 int
 }
+
+// Scene 是插件根据会话状态构造的可信身份，模型不能修改。
+type Scene struct{ Conv Conv }
+
+// ContextRequest 描述近期上下文查询及正文预算。
+type ContextRequest struct {
+	Scene       Scene
+	Queries     []string
+	BudgetChars int
+}
+
+// Block 是根包渲染的记忆块，Lines 已完成清洗和预算选择。
+type Block struct {
+	Title string
+	Lines []string
+}
+
+// ContextResult 没有可用内容时 Blocks 为空。
+type ContextResult struct{ Blocks []Block }
+
+// ErrNotReady 表示数据库从未就绪或服务已停止。
+var ErrNotReady = errors.New("memory: 未就绪")

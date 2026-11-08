@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -1599,5 +1600,66 @@ func TestMemoryStatusCommand(t *testing.T) {
 	}
 	if n := channelCount(env.p); n != 0 {
 		t.Fatalf("memory 命令不应建会话状态, channels=%d", n)
+	}
+}
+
+func TestMemoryContextGenerationFallback(t *testing.T) {
+	for _, kind := range []string{"ok", "error", "timeout", "not_ready"} {
+		t.Run(kind, func(t *testing.T) {
+			captured := make(chan string, 1)
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body struct {
+					Messages []struct{ Content json.RawMessage }
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				var system string
+				if err := json.Unmarshal(body.Messages[0].Content, &system); err != nil {
+					t.Error(err)
+				}
+				captured <- system
+				llmJSON("收到，我接上了")(w, r)
+			})
+			mem := &fakeMemory{contextFn: func(ctx context.Context, _ memory.ContextRequest) (memory.ContextResult, error) {
+				switch kind {
+				case "error":
+					return memory.ContextResult{}, errors.New("read failed")
+				case "timeout":
+					<-ctx.Done()
+					return memory.ContextResult{}, ctx.Err()
+				case "not_ready":
+					return memory.ContextResult{}, memory.ErrNotReady
+				}
+				return memory.ContextResult{Blocks: []memory.Block{{Title: "近期重点", Lines: []string{"聚餐地点已确认"}}}}, nil
+			}}
+			env := newTestEnvMem(t, handler, func(c map[string]any) { fastConfig(c) }, nil, nil, mem)
+			env.p.cfg.memory.ContextTimeout = 20 * time.Millisecond
+			env.waitLoaded(groupEvent("g1", "u1", "张三", "hi"))
+			if err := env.deliver(groupEvent("g1", "u2", "李四", "随便聊聊")); err != nil {
+				t.Fatal(err)
+			}
+			if !env.waitSends(1, 2*time.Second) {
+				t.Fatal("记忆读取影响了回复")
+			}
+			var prompt string
+			select {
+			case prompt = <-captured:
+			case <-time.After(time.Second):
+				t.Fatal("未捕获提示词")
+			}
+			if strings.Contains(prompt, "# 记忆") != (kind == "ok") {
+				t.Fatal("记忆注入与降级不正确")
+			}
+			if env.cap.hasMsg("persona: 记忆上下文获取失败") != (kind == "error" || kind == "timeout") {
+				t.Fatal("记忆告警不正确")
+			}
+			mem.mu.Lock()
+			calls := len(mem.requests)
+			mem.mu.Unlock()
+			if calls != 1 {
+				t.Fatalf("随机轮次未读取记忆 calls=%d", calls)
+			}
+		})
 	}
 }

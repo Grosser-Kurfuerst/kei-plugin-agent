@@ -128,7 +128,7 @@ dispatch:
 	overview := ""
 	if len(topics) > 0 {
 		var known []store.Topic
-		if err := p.DB.WithContext(ctx).Table("mem_topic AS t").Select("t.*").Joins("JOIN mem_summary AS s ON s.id=t.summary_id").Where("t.conv_key = ? AND t.local_date >= ? AND t.local_date < ? AND s.kind='daily'", day.ConvKey, day.LocalDate.AddDate(0, 0, -windowDays), day.LocalDate).Order("t.local_date DESC, t.importance DESC, t.id").Limit(30).Scan(&known).Error; err != nil {
+		if err := p.DB.WithContext(ctx).Table("mem_topic AS t").Select("t.*").Joins("JOIN mem_summary AS s ON s.id=t.summary_id").Where("t.conv_key = ? AND t.local_date >= ? AND t.local_date < ? AND s.kind='daily'", day.ConvKey, day.LocalDate.AddDate(0, 0, -WindowDays), day.LocalDate).Order("t.local_date DESC, t.importance DESC, t.id").Limit(30).Scan(&known).Error; err != nil {
 			return err
 		}
 		output := MergeOutput{}

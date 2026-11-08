@@ -69,7 +69,7 @@ MCP 接入的配置键（行为见 [`mcp.md`](mcp.md) 第 14 章）：
 | `mcp_extra_headers` | map[string]string | `{}` | 每个 MCP HTTP 请求附带的固定头，如 Authorization；只经 PluginContext.Config 读取，不允许覆盖协议保留头 |
 | `mcp_timeout` | duration | `8s` | 初始化或完整目录刷新操作的总预算（含分页）；工具调用仍使用 `tools_call_timeout` |
 
-记忆子系统的配置键（设计见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4–16.3.6；本表只列已实现阶段的键）：
+记忆子系统的配置键（设计见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4–16.3.7；本表只列已实现阶段的键）：
 
 | 键 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
@@ -88,6 +88,8 @@ MCP 接入的配置键（行为见 [`mcp.md`](mcp.md) 第 14 章）：
 | `memory_llm_model_large` | string | `""` | 合并模型，空时继承 small 的最终值 |
 | `memory_llm_timeout` | duration | `120s` | 后台单次 LLM 请求超时，独立于宿主客户端 Timeout |
 | `memory_llm_json_mode` | bool | `true` | 请求 JSON object 输出模式 |
+| `memory_context_timeout` | duration | `1500ms` | 回复生成前读取记忆的超时 |
+| `memory_context_max_chars` | int | `1200` | 记忆行总 rune 预算（含列表前缀及换行，不含标题） |
 
 
 `plugins.persona.enabled` 由 kei 读取（布尔或标量简写），不进入插件配置，也不在上表内。
@@ -209,6 +211,8 @@ plugins:
     memory_llm_model_large: ""
     memory_llm_timeout: "120s"
     memory_llm_json_mode: true
+    memory_context_timeout: "1500ms"
+    memory_context_max_chars: 1200
 
     # ---- 回复 ----
     reply_max_chars: 200
@@ -368,6 +372,8 @@ persona: 配置错误 personas.helper.tools=mcp__search_manual: 未启用 MCP
 | `memory_llm_base_url`（取最终值） | 必须是带 host 的 http(s) URL |
 | `memory_llm_timeout` | 必须 > 0 |
 | `memory_llm_extra_headers` | 同 `llm_extra_headers`，不做额外校验 |
+| `memory_context_timeout` | 必须 > 0 |
+| `memory_context_max_chars` | 必须 >= 1 |
 
 **注（列表键的取值口径）**：`self_ids`、`trigger_keywords`、`group_list`、`private_list`、`llm_vision_allowed_formats` 是五个 `[]string` 键，人格字段 `personas.<名>.tools` 同样，均由 `readStringList` 读取，都兼容 YAML 的常见写法：`["123"]`（带引号）、`[123]`（裸数字）、`123`（裸标量）、`"123,456"`（逗号分隔）。元素一律按 YAML 语义转成字符串后使用，不做 `x.(string)` 类型断言丢弃。
 

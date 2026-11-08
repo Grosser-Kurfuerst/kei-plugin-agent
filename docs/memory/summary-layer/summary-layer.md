@@ -800,7 +800,7 @@ func (c *Client) ChatJSON(ctx context.Context, req Request, out Validator) (Usag
 
 *合并与延续判断*（大模型，温度 0.2）
 
-- 输入：当日全部切片话题，编号 `s1…`，要点编号 `s1.0`…；前 `windowDays` 天的日摘要话题，编号 `k1…`，按 `local_date DESC, importance DESC` 取前 30 个，每个含 topic_key、日期、标题与一句话摘要（`summary` 第一个 `。！？!?；` 之前的部分，≤ 40 rune；S5 的简短行用同一函数）。
+- 输入：当日全部切片话题，编号 `s1…`，要点编号 `s1.0`…；前 `WindowDays` 天的日摘要话题，编号 `k1…`，按 `local_date DESC, importance DESC` 取前 30 个，每个含 topic_key、日期、标题与一句话摘要（`summary` 第一个 `。！？!?；` 之前的部分，≤ 40 rune；S5 的简短行用同一函数）。
 - 输出：
 
   ```json
@@ -848,7 +848,7 @@ func (c *Client) ChatJSON(ctx context.Context, req Request, out Validator) (Usag
 - `JobPayload` 追加 `ConvKey`；`JobResult` 追加 `days`、`failed_days`、`prompt_tokens`、`completion_tokens`、`slices`、`dropped_slices`、`failed_slices`、`merge_fallbacks`（任务内各天累加，失败的调用与失败的尝试也计入），按任务完成日期汇总即为成本。
 - 日志：LLM 超时或 5xx 记 `Warn`；输出不合规记 `Info`（带校验原因）；均带 `job_id`。
 
-*常量*：`sliceGapMinutes = 30`，`sliceMaxMsgs / sliceMaxChars = 200 / 8000`，`sliceMsgMaxChars = sliceMaxChars / 4 = 2000`（含省略号），`sliceOverlapMsgs = 10`，`jobMaxSlices = 80`，`sliceConcurrency = 4`，`windowDays = 3`，`llmTemperature = 0.2`（切片小结与合并共用）。
+*常量*：`sliceGapMinutes = 30`，`sliceMaxMsgs / sliceMaxChars = 200 / 8000`，`sliceMsgMaxChars = sliceMaxChars / 4 = 2000`（含省略号），`sliceOverlapMsgs = 10`，`jobMaxSlices = 80`，`sliceConcurrency = 4`，`WindowDays = 3`，`llmTemperature = 0.2`（切片小结与合并共用）。
 
 *配置*
 
@@ -941,7 +941,7 @@ type ContextResult struct {
 var ErrNotReady = errors.New("memory: 未就绪")
 ```
 
-*打分*：候选为当前会话 `local_date ∈ [今天-windowDays, 今天-1]` 的日摘要话题，即最近 3 天（几天 × 每天几个），一次查询取出后在 Go 中打分。「今天」按 `Location` 计算。今天没有日摘要，当天内容由短期历史与 S6 的滚动摘要覆盖。每天 `memory_daily_at` 之后、日摘要任务完成之前，昨天尚无日摘要，候选只剩更早两天，不做特殊处理。
+*打分*：候选为当前会话 `local_date ∈ [今天-WindowDays, 今天-1]` 的日摘要话题，即最近 3 天（几天 × 每天几个），一次查询取出后在 Go 中打分。「今天」按 `Location` 计算。今天没有日摘要，当天内容由短期历史与 S6 的滚动摘要覆盖。每天 `memory_daily_at` 之后、日摘要任务完成之前，昨天尚无日摘要，候选只剩更早两天，不做特殊处理。
 
 ```text
 topic_score = importance × 0.5^(age_days / tSummary) × (1 + α·relevance)
@@ -961,7 +961,7 @@ topic_score = importance × 0.5^(age_days / tSummary) × (1 + α·relevance)
 *根包：取上下文*（`generate` 中 `trimmed := p.trimHistory(history)` 之后）
 
 ```go
-memBlock := p.memoryContext(st, round, trimmed) // 失败、未启用时返回 ""
+memBlock := p.memoryContext(st, trimmed) // 失败、未启用时返回 ""
 ```
 
 - 跳过：只在 `p.mem == nil` 时跳过。随机轮次照常取：摘要层只查本地库，开销小；随机轮次是否跳过开销更大的层由 M3 决定。
@@ -1058,7 +1058,7 @@ type SummaryItem struct {
 var ErrInvalidDateRange = errors.New("memory: 日期范围非法")
 ```
 
-- 日期：都省略时取最近 7 天；格式错误、`DateFrom > DateTo` 或跨度超过 31 天返回 `ErrInvalidDateRange`。只查当前会话，受保留期限制，不受 `windowDays` 限制。
+- 日期：都省略时取最近 7 天；格式错误、`DateFrom > DateTo` 或跨度超过 31 天返回 `ErrInvalidDateRange`。只查当前会话，受保留期限制，不受 `WindowDays` 限制。
 - 取该会话日期范围内的全部话题（跨度 ≤ 31 天，数量很小），在 Go 中排序：有 query 时按 `keywordRelevance` 降序（相同按日期、重要性），去掉相关度为 0 的；无 query 时按 `local_date DESC, importance DESC`。取前 `Limit` 条。
 
 *`memory__summary` 工具*：仅在 `memory_tools_enabled=true` 时装配；每次生成按会话构造，持有本会话 `Scene`，模型只能查当前会话。

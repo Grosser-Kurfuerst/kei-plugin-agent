@@ -29,6 +29,8 @@ const (
 
 // Config 是记忆子系统的配置，由根包从 memory_* 键组装并校验（数值均为正数）。
 type Config struct {
+	ContextTimeout                                      time.Duration
+	ContextMaxChars                                     int
 	LLMBaseURL, LLMAPIKey, LLMModelSmall, LLMModelLarge string
 	LLMHeaders                                          map[string]string
 	LLMTimeout                                          time.Duration
@@ -65,6 +67,7 @@ type Service struct {
 	retryBackoff       []time.Duration // 批量写入失败后的重试退避，长度即重试次数
 
 	// mu 保护以下字段；Enqueue 持读锁，保证 Stop 关闭准入后不再有记录入队。
+	db      *gorm.DB // mu 保护；就绪后只读，Stop 后不再准入读取。
 	mu      sync.RWMutex
 	state   string
 	started bool
@@ -208,6 +211,9 @@ func (s *Service) run(ctx context.Context) {
 	}
 	stopJobs := s.startJobs(ctx, db)
 	defer stopJobs()
+	s.mu.Lock()
+	s.db = db
+	s.mu.Unlock()
 	s.setState(StateReady)
 	s.writeLoop(ctx, db)
 }

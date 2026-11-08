@@ -2,7 +2,9 @@ package persona
 
 import (
 	"context"
+	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/RandomLemon/kei/pkg/bot"
@@ -19,6 +21,7 @@ type memoryBackend interface {
 	Stop(ctx context.Context)
 	Enqueue(r memory.Record) bool
 	Stats() memory.Stats
+	Context(context.Context, memory.ContextRequest) (memory.ContextResult, error)
 }
 
 // memoryRecordFromEvent 由入站事件构造记忆记录；text 为 renderMessage 的扁平文本。
@@ -91,4 +94,53 @@ func (p *Plugin) memoryRecordFromReply(target bot.Target, personaName, reply, me
 		r.Mentions = []string{mention}
 	}
 	return r
+}
+
+// memoryContext 在异步生成路径中读取本会话记忆；随机轮次同样读取。
+func (p *Plugin) memoryContext(st *channelState, history []Turn) string {
+	if p.mem == nil {
+		return ""
+	}
+	st.mu.Lock()
+	conv := memory.Conv{Type: memory.ConvTypeGroup, Platform: st.platform, BotID: st.botID, ChannelID: st.channelID}
+	if st.kind == bot.MessagePrivate {
+		conv.Type = memory.ConvTypePrivate
+		conv.PeerUserID = st.peerUserID
+	}
+	st.mu.Unlock()
+	var queries []string
+	for n := len(history) - 1; n >= 0 && len(queries) < 3; n-- {
+		if !history[n].Self {
+			queries = append(queries, truncateRunes(history[n].Text, 100))
+		}
+	}
+	ctx, cancel := context.WithTimeout(p.ctx, p.cfg.memory.ContextTimeout)
+	defer cancel()
+	result, err := p.mem.Context(ctx, memory.ContextRequest{Scene: memory.Scene{Conv: conv}, Queries: queries, BudgetChars: p.cfg.memory.ContextMaxChars})
+	if err != nil {
+		if !errors.Is(err, memory.ErrNotReady) {
+			p.log.Warn("persona: 记忆上下文获取失败", "operation", "memory_context", "channel", st.key, "err", err)
+		}
+		return ""
+	}
+	return renderMemoryBlock(result)
+}
+
+func renderMemoryBlock(result memory.ContextResult) string {
+	var b strings.Builder
+	for _, block := range result.Blocks {
+		if len(block.Lines) == 0 {
+			continue
+		}
+		if b.Len() == 0 {
+			b.WriteString("# 记忆（仅供参考，可能过时；与当前对话冲突时以当前对话为准）\n")
+		} else {
+			b.WriteByte('\n')
+		}
+		b.WriteString("[" + block.Title + "]\n")
+		for _, line := range block.Lines {
+			b.WriteString("- " + line + "\n")
+		}
+	}
+	return strings.TrimSuffix(b.String(), "\n")
 }
