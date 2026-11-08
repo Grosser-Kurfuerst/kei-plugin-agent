@@ -69,7 +69,7 @@ MCP 接入的配置键（行为见 [`mcp.md`](mcp.md) 第 14 章）：
 | `mcp_extra_headers` | map[string]string | `{}` | 每个 MCP HTTP 请求附带的固定头，如 Authorization；只经 PluginContext.Config 读取，不允许覆盖协议保留头 |
 | `mcp_timeout` | duration | `8s` | 初始化或完整目录刷新操作的总预算（含分页）；工具调用仍使用 `tools_call_timeout` |
 
-记忆子系统的配置键（设计见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4–16.3.7；本表只列已实现阶段的键）：
+记忆子系统的配置键（设计见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4–16.3.8；本表只列已实现阶段的键）：
 
 | 键 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
@@ -90,6 +90,7 @@ MCP 接入的配置键（行为见 [`mcp.md`](mcp.md) 第 14 章）：
 | `memory_llm_json_mode` | bool | `true` | 请求 JSON object 输出模式 |
 | `memory_context_timeout` | duration | `1500ms` | 回复生成前读取记忆的超时 |
 | `memory_context_max_chars` | int | `1200` | 记忆行总 rune 预算（含列表前缀及换行，不含标题） |
+| `memory_tools_enabled` | bool | `false` | 装配内置记忆工具 `memory__summary`，需配置记忆 DSN 且 LLM 支持 tool calling |
 
 
 `plugins.persona.enabled` 由 kei 读取（布尔或标量简写），不进入插件配置，也不在上表内。
@@ -290,7 +291,7 @@ msg=环境变量覆盖配置 env=KEI_PLUGINS_PERSONA_SELF_IDS config=plugins.per
 persona: 配置错误 <key>=<值>: <原因>
 ```
 
-`<原因>` 取自固定短语：`不能为空`、`必须是非空对象`、`必须是 0..1 之间的小数`、`必须 >= <n>`、`必须是 HH:MM-HH:MM 格式`、`必须是 off|open|whitelist|blacklist 之一`、`不是合法时区`、`未在 personas 中定义`、`prompt 不能为空`、`channel_id 不能为空`。MCP 配置另使用 `必须是带 host 的 http(s) URL`、`必须是字符串键值映射`、`不得覆盖 MCP 协议请求头`、`必须 > 0`；人格工具名使用 `不是合法 MCP 工具名`、`未启用 MCP`，记忆配置另使用 `不能大于 memory_queue_size`，凭据不作为错误中的 `<值>` 输出。
+`<原因>` 取自固定短语：`不能为空`、`必须是非空对象`、`必须是 0..1 之间的小数`、`必须 >= <n>`、`必须是 HH:MM-HH:MM 格式`、`必须是 off|open|whitelist|blacklist 之一`、`不是合法时区`、`未在 personas 中定义`、`prompt 不能为空`、`channel_id 不能为空`。MCP 配置另使用 `必须是带 host 的 http(s) URL`、`必须是字符串键值映射`、`不得覆盖 MCP 协议请求头`、`必须 > 0`；人格工具名使用 `不是合法 MCP 工具名`、`未启用 MCP`、`不是合法记忆工具名`、`未启用记忆工具`，记忆配置另使用 `不能大于 memory_queue_size`，凭据不作为错误中的 `<值>` 输出。
 
 固定示例：
 
@@ -309,7 +310,7 @@ persona: 配置错误 personas.helper.tools=mcp__search_manual: 未启用 MCP
 
 | 键 | 规则 |
 | --- | --- |
-| `personas` | 必须是非空对象；每个条目的 prompt 不能为空；`tools` 名单只接受合法 `mcp__` 名称且要求 MCP 已启用，不要求当前远端存在。以键 `personas.<名>.tools`、值为该名字报 `不是合法 MCP 工具名` 或 `未启用 MCP`（[`mcp.md`](mcp.md) §14.3） |
+| `personas` | 必须是非空对象；每个条目的 prompt 不能为空；`tools` 名单的 `mcp__` 项只接受合法名称且要求 MCP 已启用，不要求当前远端存在。以键 `personas.<名>.tools`、值为该名字报 `不是合法 MCP 工具名` 或 `未启用 MCP`；`memory__` 名称只接受 `memory__summary`，否则 `不是合法记忆工具名`；要求 DSN 非空且 `memory_tools_enabled=true`，否则 `未启用记忆工具`（[`mcp.md`](mcp.md) §14.3） |
 | `default_persona` | 必须已存在于 `personas`，否则 `未在 personas 中定义` |
 | `persona_template` | 无额外校验（空值回落内建模板） |
 | `bindings` | 每个元素的 channel_id 不能为空；元素的 persona 必须已定义 |
@@ -374,6 +375,7 @@ persona: 配置错误 personas.helper.tools=mcp__search_manual: 未启用 MCP
 | `memory_llm_extra_headers` | 同 `llm_extra_headers`，不做额外校验 |
 | `memory_context_timeout` | 必须 > 0 |
 | `memory_context_max_chars` | 必须 >= 1 |
+| `memory_tools_enabled` | 无额外校验；DSN 为空时不装配 |
 
 **注（列表键的取值口径）**：`self_ids`、`trigger_keywords`、`group_list`、`private_list`、`llm_vision_allowed_formats` 是五个 `[]string` 键，人格字段 `personas.<名>.tools` 同样，均由 `readStringList` 读取，都兼容 YAML 的常见写法：`["123"]`（带引号）、`[123]`（裸数字）、`123`（裸标量）、`"123,456"`（逗号分隔）。元素一律按 YAML 语义转成字符串后使用，不做 `x.(string)` 类型断言丢弃。
 

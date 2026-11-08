@@ -17,7 +17,7 @@ func TestKeywordRelevance(t *testing.T) {
 	}{
 		{"周末去哪聚餐", "聚餐地点：城东", true}, {"周末去哪聚餐", "服务器升级", false}, {"", "聚餐", false}, {"[图片]", "[图片]", false}, {"[图片] 聚餐", "聚餐地点", true}, {"A B!", "ab", true}, {"餐", "聚餐", false}, {"餐", "餐", true},
 	} {
-		got := keywordRelevance(tc.query, tc.text)
+		got := KeywordRelevance(tc.query, tc.text)
 		if (got > 0) != tc.positive {
 			t.Errorf("%q/%q = %f", tc.query, tc.text, got)
 		}

@@ -128,7 +128,8 @@ type config struct {
 	limitsMaxConcurrent int
 	debugPrompts        bool
 
-	memory memory.Config // DatabaseDSN 为空表示未启用记忆
+	memoryToolsEnabled bool
+	memory             memory.Config // DatabaseDSN 为空表示未启用记忆
 }
 
 // loadConfig 读取全部键、填默认值并校验。
@@ -182,6 +183,10 @@ func loadConfig(c *bot.Config) (*config, error) {
 		return nil, cfgErr("mcp_timeout", cfg.mcpTimeout.String(), "必须 > 0")
 	}
 	if cfg.mcpExtraHeaders, err = readMCPHeaders(c); err != nil {
+		return nil, err
+	}
+	cfg.memoryToolsEnabled = r.boolean("memory_tools_enabled", false)
+	if cfg.memory, err = readMemoryConfig(r, cfg); err != nil {
 		return nil, err
 	}
 	if cfg.personas, err = readPersonas(c, cfg); err != nil {
@@ -352,9 +357,6 @@ func loadConfig(c *bot.Config) (*config, error) {
 	}
 	cfg.randomTimezone = loc
 
-	if cfg.memory, err = readMemoryConfig(r, cfg); err != nil {
-		return nil, err
-	}
 	cfg.memory.Location = loc
 	return cfg, nil
 }
@@ -505,6 +507,15 @@ func readPersonas(c *bot.Config, cfg *config) (map[string]personaConfig, error) 
 			if rawTools, ok := t["tools"]; ok && rawTools != nil { // 写成 null 与不写一样：继承
 				p.Tools, p.hasTools = stringList(rawTools), true
 				for _, toolName := range p.Tools {
+					if strings.HasPrefix(toolName, "memory__") {
+						if toolName != memorySummaryName {
+							return nil, cfgErr("personas."+name+".tools", toolName, "不是合法记忆工具名")
+						}
+						if cfg.memory.DatabaseDSN == "" || !cfg.memoryToolsEnabled {
+							return nil, cfgErr("personas."+name+".tools", toolName, "未启用记忆工具")
+						}
+						continue
+					}
 					if !validMCPToolName(toolName) {
 						return nil, cfgErr("personas."+name+".tools", toolName, "不是合法 MCP 工具名")
 					}

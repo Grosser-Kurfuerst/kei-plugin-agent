@@ -26,7 +26,7 @@
 | 依赖范围（GORM、pgvector-go 只允许 `internal/memory`） | [`../../AGENTS.md`](../../AGENTS.md) §2.2 |
 | 插件功能边界中的记忆部分 | [`../architecture.md`](../architecture.md) 第 1 章 |
 | `Setup` / `Start` / `Stop` 中的记忆步骤、记忆协程 | [`../architecture.md`](../architecture.md) §3.1、§3.2 |
-| 根包 `memory.go` 与 `internal/memory/` 的文件职责 | [`../architecture.md`](../architecture.md) 第 5 章 |
+| 根包 `memory.go` / `memory_tools.go` 与 `internal/memory/` 的文件职责 | [`../architecture.md`](../architecture.md) 第 5 章 |
 | `memory_*` 配置键、示例、DSN 环境变量、校验规则 | [`../configuration.md`](../configuration.md) §10.1–10.4 |
 | `/agent memory` 命令与输出行 | [`../persona.md`](../persona.md) §8.4 |
 | 记忆块注入提示词的位置与格式（S5 起） | [`../persona.md`](../persona.md) §8.5 |

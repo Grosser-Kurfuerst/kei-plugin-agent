@@ -18,7 +18,7 @@
 | S3 任务框架与清理 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `feat(memory): add scheduled jobs and retention cleanup` | 真实宿主分钟调度与 status 验收通过；质量门全绿，review 2 轮通过 |
 | S4 日摘要流水线 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `4058e6d` + `fix(memory): bound summary message and overlap budgets` | 预算规则已确认；真实会话日与真实模型抽验通过；本轮质量门全绿、review 1 轮通过 |
 | S5 读取与注入 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `feat(memory): inject recent daily summaries into replies` | 读取与注入、隔离与降级测试、真实宿主验收通过；review 2 轮通过 |
-| S6 滚动摘要与显式查询 | M2 | 进行中 | 2026-11-08 | — | `feat(memory): add incremental rolling summaries` | 日界已完成；先实现滚动摘要与读取，再实现显式查询工具 |
+| S6 滚动摘要与显式查询 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `65e3e58`、`3a93cdb` + `feat(memory): add explicit summary query tool` | 日界、滚动与读取、显式查询工具分开提交；运行验收及质量门通过，两部分 review 均 2 轮通过 |
 | S7 评测与调参 | M2 | 未开始 | — | — | — | — |
 
 ## 阶段清单
@@ -80,12 +80,12 @@
 
 - [x] 摘要日日界改为 `memory_daily_at`（§16.2.3），迁移 `store.LocalDate` 全部调用点
 - [x] 滚动摘要触发与流水线、读取侧滚动候选与短期窗口去重
-- [ ] `QuerySummaries`、`memory__summary`、`toolsFor` 迁移
-- [ ] 配置键与人格 `tools` 校验
-- [ ] 验收表全部通过
-- [ ] 运行验收：当天出现滚动摘要、次日被替换；凌晨消息归入前一天；模型调用 `memory__summary`
-- [ ] 质量门全绿
-- [ ] 文档同步：`configuration.md`（含 `memory_daily_at` 日界）、`overview.md` 每日任务链、`architecture.md` 第 1 / 5 章，核对 `mcp.md`
+- [x] `QuerySummaries`、`memory__summary`、`toolsFor` 迁移
+- [x] 配置键与人格 `tools` 校验
+- [x] 验收表全部通过
+- [x] 运行验收：当天出现滚动摘要、次日被替换；凌晨消息归入前一天；模型调用 `memory__summary`
+- [x] 质量门全绿
+- [x] 文档同步：`configuration.md`（含 `memory_daily_at` 日界）、`overview.md` 每日任务链、`architecture.md` 第 1 / 5 章，核对 `mcp.md`
 
 ### S7 评测与调参（§16.3.9）
 
@@ -115,6 +115,8 @@
 | 2026-11-08 | S1–S6 | 开发前评审决定：摘要日以 `memory_daily_at` 为日界（默认当天 04:00 至次日 04:00 算同一天，`00:00` 即自然日），由 `store.LocalDate(t, loc, dayStart)` 统一换算，作为 S6 第一步单独实现；已入库数据不迁移 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.2.3、§16.3.3、§16.3.5、§16.3.7、§16.3.8；`configuration.md`、`overview.md` 随实现同步 |
 | 2026-11-08 | S6 | 开发前评审补定：滚动任务开始前与写入加锁后两次检查 `summarized_upto_id`，已有值即退出，D 不是今天不作为退出条件；更新今日滚动话题时保留 topic_key 与 `first_*`、参与者与要点取并集、标题摘要用新输出，已被今日滚动话题延续的 `k` 不再延续；新增 `RollingMergeSystem` 全文，日摘要提示词不变；新键序号为 `rolling_runs+1`，进度按开始时读到的 `msg_count` / `last_msg_id` 推进；读取侧滚动行排最前、不受 θ、无概况，「最近一天」只按日摘要计算，先按 `HistorySince` 跳过再去重；显式查询的单端日期补全、同日日摘要优先、零相关时退回日期排序，工具描述补充「按日期问时不要填 query」；触发测试移到 `ingest_test.go`，「写事务第 5 步」改为「第 4 步之后」 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.8 |
 
+| 2026-11-08 | S6 | 评审补充：滚动任务持久化固定 `JobPayload.Run`，开始及写入加锁后跳过已完成运行，避免摘要已提交但任务状态未保存时重放重复推进；最近日摘要概况独立于话题去重保留；`RollingEvery` / `RollingMaxPerDay`、`KeywordRelevance` / `OpenItems` 导出供写入和查询共用 | 设计与全部调用点同步，均有回归验证 |
+
 ## 迭代验证记录
 
 - S3（2026-11-08）：Nix devShell / `GOTOOLCHAIN=local` 下 `gofmt`、build、vet、带 PostgreSQL 独立 schema 的 test / race、lint 全通过（0 issues）。`TestRuntimeHostCleanup` 用真实 devhost、mock 控制面与分钟时钟，60.10s 通过：cleanup 完成且 status 显示任务行。review 2 轮，最终 `NO_BLOCKING_ISSUES`；修复状态落库失败重试、未启用记忆时的新增配置校验，补齐清理与停止验证；无未复评修复。
@@ -126,3 +128,5 @@
 - S5（2026-11-08）：可信 Scene 与当前会话最近三日日摘要读取、关键词与时间打分、去重、预算和记忆块注入已完成；随机轮次同样读取，未启用时提示词逐字保持不变。Nix devShell 中 build / vet / 带 PostgreSQL 独立 schema 的全仓 race / lint 全过，0 issues；gofmt / diff check 干净。`TestRuntimeHostContext` 使用真实 devhost、现有聊天模型与固定合成聚餐摘要，debug 提示词含记忆块且回复提到聚餐；仅切断该测试宿主的数据库链路后仍正常回复并记录读取告警（未停止共享 PostgreSQL）。review 共 2 轮，最终 `NO_BLOCKING_ISSUES`；首轮功能评审通过，修正测试矩阵表格格式后通过收尾复核。最终源码的真实宿主验收复跑 2.28s 通过。无第三轮后未复评修复。
 
 - S6 滚动摘要（2026-11-08）：写事务触发、增量合并、日摘要并发替换及读取去重完成。Nix devShell 中 build / vet / 全仓 PostgreSQL test 与 race / lint 全通过，0 issues；gofmt / diff check 干净。`TestRuntimeRollingLifecycle` 使用真实 Service、worker、PostgreSQL 隔离 schema 与 HTTP 桩，通过可控时钟验证凌晨消息归前一摘要日、200 条触发 rolling、04:00 后 daily 替换。review 2 轮，最终 `NO_BLOCKING_ISSUES`；修复固定 Run 重放幂等、全话题延续时概况丢失，均有回归测试并复评。显式查询工具待下一提交；无未复评修复。
+
+- S6 显式查询与工具（2026-11-08）：`QuerySummaries`、可信 Scene、日期范围与关键词排序、默认关闭的 `memory__summary`、人格过滤和工具目录完成，全部调用点与文档已同步。Nix devShell 中 build / vet / 全仓 PostgreSQL test 与 race 全通过，lint 0 issues，gofmt / diff check 干净。`TestRuntimeHostSummaryTool` 用真实 devhost、现有聊天模型与固定合成的上周三摘要，工具日志显示成功调用，回复包含对应餐厅安排；最终测试源码复跑 1.56s 通过，未读取或发送真实会话。review 2 轮，最终 `NO_BLOCKING_ISSUES`；补充多个正相关候选，精确验证相关度、日期和重要性排序优先级，PostgreSQL 普通 / race 回归及 lint 通过并复评。无第三轮后未复评修复。S6 完成，S7 未开始。

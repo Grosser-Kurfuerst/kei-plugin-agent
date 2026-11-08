@@ -126,6 +126,9 @@ func (p *Plugin) handleToolsCommand(ctx context.Context, target bot.Target, r bo
 			names[i] = t.Def().Function.Name
 		}
 		p.toolsMu.RUnlock()
+		if p.mem != nil && p.cfg.memoryToolsEnabled {
+			names = append(names, memorySummaryName)
+		}
 		return r.Text("persona: tools=[" + strings.Join(names, " ") + "]").Send(ctx)
 	}
 	if len(args) != 1 || args[0] != "reload" {

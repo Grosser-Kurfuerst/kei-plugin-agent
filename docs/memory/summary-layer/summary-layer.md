@@ -949,8 +949,8 @@ topic_score = importance × 0.5^(age_days / tSummary) × (1 + α·relevance)
 ```
 
 - `age_days = 今天 - local_date`；`tSummary = 3` 时昨天 / 前天 / 大前天权重约 0.79 / 0.63 / 0.5。
-- `relevance = max_i keywordRelevance(Queries[i], title + summary)`；`Queries` 为空时为 0。
-- `keywordRelevance(q, t)`：两段文本先去掉占位符（`[图片]` 等，与 S4 预过滤同一正则），转小写、去掉空白与标点，再切成相邻两字的 bigram 集合（只剩 1 个字时以该字为单元），返回 `|Q ∩ T| / |Q|`；`q` 为空时为 0。每条查询单独计算，避免多条消息拼接后分母过大、相关度失效。该函数放在 `scoring.go`，S6 的显式查询复用。
+- `relevance = max_i KeywordRelevance(Queries[i], title + summary)`；`Queries` 为空时为 0。
+- `KeywordRelevance(q, t)`：两段文本先去掉占位符（`[图片]` 等，与 S4 预过滤同一正则），转小写、去掉空白与标点，再切成相邻两字的 bigram 集合（只剩 1 个字时以该字为单元），返回 `|Q ∩ T| / |Q|`；`q` 为空时为 0。每条查询单独计算，避免多条消息拼接后分母过大、相关度失效。该函数放在 `scoring.go`，S6 的显式查询复用。
 
 *选取与行渲染*
 
@@ -997,7 +997,7 @@ memBlock := p.memoryContext(st, trimmed) // 失败、未启用时返回 ""
 
 | 测试位置 | 必须观察到的结果 |
 | --- | --- |
-| `summary/scoring_test.go` | `keywordRelevance`：「周末去哪聚餐」对「聚餐地点：……」大于 0，对无关话题为 0，空 query 为 0，占位符不参与匹配；多条查询取最大值；时间权重 0.79 / 0.63 / 0.5；同一 `topic_key` 只保留最新一天；最近一天先出概况、话题按分数降序；更早日期只输出 ≥ θ 的简短行；行内换行折叠；按预算截断 |
+| `summary/scoring_test.go` | `KeywordRelevance`：「周末去哪聚餐」对「聚餐地点：……」大于 0，对无关话题为 0，空 query 为 0，占位符不参与匹配；多条查询取最大值；时间权重 0.79 / 0.63 / 0.5；同一 `topic_key` 只保留最新一天；最近一天先出概况、话题按分数降序；更早日期只输出 ≥ θ 的简短行；行内换行折叠；按预算截断 |
 | `read_test.go`（库） | A 会话读不到 B 会话的话题，群与私聊互不可见；只取 `[今天-3, 今天-1]` 的日摘要话题；就绪前与 `Stop` 后返回 `ErrNotReady`；ctx 到期返回错误 |
 | 根包 `memory_test.go` | 记忆块位置与空行正确；无内容时不输出 |
 | 根包 `decision_test.go` | 超时或出错时照常生成、无记忆块并记 `Warn`；`ErrNotReady` 时不记日志；随机轮次同样取记忆 |
@@ -1112,7 +1112,7 @@ var ErrInvalidDateRange = errors.New("memory: 日期范围非法")
   - 只给 `DateTo`：`DateFrom = DateTo-6`。
 - 格式错误、补全后 `DateFrom > DateTo`、跨度（首尾都算）超过 31 天时返回 `ErrInvalidDateRange`。只查当前会话，受保留期限制，不受 `WindowDays` 限制。
 - 取该会话日期范围内的日摘要话题，以及没有日摘要的日期的滚动话题（同一天两者都有时只取日摘要）。数量很小，在 Go 中排序：
-  - 有 query：按 `keywordRelevance` 降序（相同按日期、重要性降序），去掉相关度为 0 的话题；全部为 0 时退回下面的无 query 排序。
+  - 有 query：按 `KeywordRelevance` 降序（相同按日期、重要性降序），去掉相关度为 0 的话题；全部为 0 时退回下面的无 query 排序。
   - 无 query：按 `local_date DESC, importance DESC`。
 - 取前 `Limit` 条；`Limit` 为 0 取 8，超出 1–10 时截到边界。
 

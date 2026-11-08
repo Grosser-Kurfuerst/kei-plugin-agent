@@ -31,6 +31,7 @@ type fakeMemory struct {
 	stats     memory.Stats
 	contextFn func(context.Context, memory.ContextRequest) (memory.ContextResult, error)
 	requests  []memory.ContextRequest
+	queryFn   func(context.Context, memory.SummaryQuery) ([]memory.SummaryItem, error)
 }
 
 func (m *fakeMemory) Start(context.Context) {
@@ -74,6 +75,16 @@ func (m *fakeMemory) Context(ctx context.Context, req memory.ContextRequest) (me
 		return fn(ctx, req)
 	}
 	return memory.ContextResult{}, nil
+}
+
+func (m *fakeMemory) QuerySummaries(ctx context.Context, req memory.SummaryQuery) ([]memory.SummaryItem, error) {
+	m.mu.Lock()
+	fn := m.queryFn
+	m.mu.Unlock()
+	if fn != nil {
+		return fn(ctx, req)
+	}
+	return nil, nil
 }
 
 // snapshot 返回已入队记录的副本。

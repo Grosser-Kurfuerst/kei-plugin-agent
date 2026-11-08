@@ -38,9 +38,9 @@ type toolResult struct {
 
 ### 13.3 工具选择
 
-`toolsFor(personaName)` 复制当前目录并按人格过滤，整个生成固定使用这一快照。配置启用、名称和人格三态的唯一规则见 §14.3；目录读取、替换与并发规则见 §14.6。
+`toolsFor(personaName, st)` 复制 MCP 目录、追加绑定会话的记忆工具并按人格过滤，整个生成固定使用这一快照。配置启用、名称和人格三态的唯一规则见 §14.3；目录读取、替换与并发规则见 §14.6。
 
-启用记忆工具（`memory_database_dsn` 非空且 `memory_tools_enabled=true`）时，签名改为 `toolsFor(personaName string, st *channelState)`：可用工具 = MCP 目录快照 + 绑定本会话的记忆工具（排在 MCP 工具之后），再按人格名单过滤（[`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.8）。
+签名为 `toolsFor(personaName string, st *channelState)`。启用记忆工具（`memory_database_dsn` 非空且 `memory_tools_enabled=true`）时，可用工具 = MCP 目录快照 + 绑定本会话的记忆工具（排在 MCP 工具之后），再按人格名单过滤（[`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.8）。
 
 可用工具为空时，请求不带 `tools` 字段，只调用一次 `Complete`，普通聊天仍可运行。`p.tools` 仍是测试注入缝（[`testing.md`](testing.md) §11.2）。
 
@@ -50,7 +50,7 @@ type toolResult struct {
 
 ```text
 completeWithTools(st, epoch, personaName, req) (content string, err error):
-  tools = p.toolsFor(personaName)
+  tools = p.toolsFor(personaName, st)
   if len(tools) == 0:
     res, err = p.completer.Complete(p.ctx, req)
     return res.Content, err
@@ -178,12 +178,12 @@ plugins:
         tools: []
 ```
 
-- `mcp_url` 为空时不构造客户端、不产生 MCP 网络请求，工具目录为空；非空即加载该端点提供的全部工具。无需另加 `mcp_enabled` 或全局工具启用名单。
+- `mcp_url` 为空时不构造客户端、不产生 MCP 网络请求，MCP 目录为空；非空即加载该端点提供的全部工具。无需另加 `mcp_enabled` 或全局工具启用名单。
 - 本地名字为 `mcp__<远端名称>`，调用时使用保存的原始名称；工具目录按本地名称排序。
 - 为适配当前 OpenAI function calling，转换后的名称限定为 1–64 个 ASCII 字母、数字、下划线或连字符。远端名称含点或过长时，目录加载明确报错；第一版不做自动改名或哈希别名。重复名称、非法 `inputSchema`、要求 tasks 的工具也报错，不悄悄隐藏条目。错误细节带出错工具的远端名（转义、按 rune 截断 64）：`bad_tool_name:"x.y"`、`duplicate_tool_name:"x"`、`bad_tool_schema:"x"`、`tasks_required:"x"`；整个目录一次校验，任一条目非法即整体失败，不发布半份目录。
 - `name`、`description`、`inputSchema` 分别转换为 `toolDef.Function.Name`、`Description`、`Parameters`；schema 保留原 JSON 对象，不实现完整 JSON Schema 校验器或 schema 改写器。
 - 人格 `tools` 不写或为 null：继承当前全部工具；`[]`：无工具；名单：取与当前目录的交集，保持装配顺序。
-- 人格名单只接受 `mcp__` 名称，在配置阶段校验名称格式及 `mcp_url` 非空，不要求远端当前存在；不存在时不会暴露给模型。这样可以先配置将来新增的工具，删除远端工具也无需同步修改人格配置。
+- 人格名单中的 MCP 工具使用 `mcp__` 名称，在配置阶段校验名称格式及 `mcp_url` 非空，不要求远端当前存在；不存在时不会暴露给模型。这样可以先配置将来新增的工具，删除远端工具也无需同步修改人格配置。
 - 记忆工具例外：启用记忆工具时，不写 `tools` 的人格同样继承已启用的记忆工具；名单中的 `memory__` 名称必须是内置记忆工具名，且要求记忆工具已启用，校验规则见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.8。`memory__` 前缀保留给内置工具，MCP 工具一律带 `mcp__` 前缀，两者不会重名。
 
 ### 14.4 MCP 协议最小实现
@@ -240,7 +240,7 @@ reload 的 Handler 只做参数校验、记录回复目标、登记任务并立�
 
 网络与工具执行期间不持有目录锁。失败返回错误，原目录不变；这只是原有状态的事务性保留，不尝试切换备用端点或静默生成替代工具。
 
-`toolsFor` 在读锁内复制可用工具切片，返回后释放锁。每次 `completeWithTools` 固定使用同一快照，包括定义和实现；刷新创建新的 `mcpTool`，不修改旧定义。因此目录增删与 schema 更新从下一次生成生效。当前生成遇到远端已经删除的工具时照常得到失败结果；快照不保证远端还保留该工具，也不承诺立即撤销已开始的执行。
+`toolsFor` 在读锁内复制 MCP 工具切片，释放锁后追加当前会话的记忆工具，再按人格过滤。每次 `completeWithTools` 固定使用同一快照，包括定义和实现；刷新创建新的 `mcpTool`，不修改旧定义。因此目录增删与 schema 更新从下一次生成生效。当前生成遇到远端已经删除的工具时照常得到失败结果；快照不保证远端还保留该工具，也不承诺立即撤销已开始的执行。
 
 状态全部挂在 `Plugin` 实例上：目录锁、客户端引用、刷新在途标记。`toolsMu` 只保护工具切片，`mcpRefreshing` 与 `closing` 一起由现有 `writeMu` 保护；复用 `p.wg` 跟踪刷新协程。必须在准入锁内判定关闭状态并登记任务，避免 Stop 开始后再 Add。无需额外 worker、队列、引用计数或目录持久化。
 

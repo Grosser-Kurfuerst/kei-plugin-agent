@@ -81,3 +81,24 @@ type ContextResult struct{ Blocks []Block }
 
 // ErrNotReady 表示数据库从未就绪或服务已停止。
 var ErrNotReady = errors.New("memory: 未就绪")
+
+// SummaryQuery 是当前会话的显式摘要查询，日期按摘要日解释。
+type SummaryQuery struct {
+	Scene    Scene
+	DateFrom string
+	DateTo   string
+	Query    string
+	Limit    int // 0 表示默认 8，其余限制在 1–10。
+}
+
+// SummaryItem 是显式查询返回的一条话题。
+type SummaryItem struct {
+	Date      string
+	Kind      string
+	Title     string
+	Summary   string
+	OpenItems []string
+}
+
+// ErrInvalidDateRange 表示日期格式、顺序或跨度不合法。
+var ErrInvalidDateRange = errors.New("memory: 日期范围非法")

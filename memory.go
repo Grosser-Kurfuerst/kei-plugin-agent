@@ -22,6 +22,7 @@ type memoryBackend interface {
 	Enqueue(r memory.Record) bool
 	Stats() memory.Stats
 	Context(context.Context, memory.ContextRequest) (memory.ContextResult, error)
+	QuerySummaries(context.Context, memory.SummaryQuery) ([]memory.SummaryItem, error)
 }
 
 // memoryRecordFromEvent 由入站事件构造记忆记录；text 为 renderMessage 的扁平文本。

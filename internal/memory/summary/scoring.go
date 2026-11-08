@@ -37,7 +37,8 @@ func bigrams(text string) map[string]struct{} {
 	return out
 }
 
-func keywordRelevance(query, text string) float64 {
+// KeywordRelevance 按规范化正文的 bigram 重叠计算关键词相关度。
+func KeywordRelevance(query, text string) float64 {
 	q, t := bigrams(query), bigrams(text)
 	if len(q) == 0 {
 		return 0
@@ -54,13 +55,14 @@ func keywordRelevance(query, text string) float64 {
 func topicScore(topic store.Topic, queries []string, today time.Time) float64 {
 	relevance := 0.0
 	for _, q := range queries {
-		relevance = max(relevance, keywordRelevance(q, topic.Title+topic.Summary))
+		relevance = max(relevance, KeywordRelevance(q, topic.Title+topic.Summary))
 	}
 	age := today.Sub(topic.LocalDate).Hours() / 24
 	return topic.Importance * math.Pow(0.5, age/tSummary) * (1 + scoreAlpha*relevance)
 }
 
-func openItems(points []store.KeyPoint) string {
+// OpenItems 提取第一条未决问题与待办，供上下文和显式查询共用。
+func OpenItems(points []store.KeyPoint) []string {
 	var question, todo string
 	for _, p := range points {
 		if p.Type == "open_question" && question == "" {
@@ -77,6 +79,11 @@ func openItems(points []store.KeyPoint) string {
 	if todo != "" {
 		items = append(items, todo)
 	}
+	return items
+}
+
+func openItems(points []store.KeyPoint) string {
+	items := OpenItems(points)
 	if len(items) == 0 {
 		return ""
 	}

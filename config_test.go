@@ -63,6 +63,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 		{"tools_call_timeout", cfg.toolsCallTimeout, 8 * time.Second},
 		{"tools_result_max_chars", cfg.toolsResultMaxChars, 2000},
 		{"mcp_url", cfg.mcpURL, ""},
+		{"memory_tools_enabled", cfg.memoryToolsEnabled, false},
 		{"mcp_timeout", cfg.mcpTimeout, 8 * time.Second},
 		{"memory_database_dsn", cfg.memory.DatabaseDSN, ""},
 		{"memory_db_max_open_conns", cfg.memory.MaxOpenConns, 8},
@@ -424,5 +425,30 @@ func TestMemoryContextConfig(t *testing.T) {
 	}
 	if cfg.memory.ContextTimeout != 1500*time.Millisecond || cfg.memory.ContextMaxChars != 1200 {
 		t.Fatal("上下文默认值错误")
+	}
+}
+
+func TestMemoryToolConfigValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name, tool, dsn string
+		enabled         bool
+		want            string
+	}{
+		{name: "unknown", tool: "memory__other", dsn: "postgres://test", enabled: true, want: "不是合法记忆工具名"},
+		{name: "disabled", tool: "memory__summary", dsn: "postgres://test", want: "未启用记忆工具"},
+		{name: "no_memory", tool: "memory__summary", enabled: true, want: "未启用记忆工具"},
+		{name: "enabled", tool: "memory__summary", dsn: "postgres://test", enabled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := loadConfig(bot.NewConfig(map[string]any{"llm_model": "m", "memory_database_dsn": tc.dsn, "memory_tools_enabled": tc.enabled, "personas": map[string]any{"default": map[string]any{"prompt": "p", "tools": []any{tc.tool}}}}))
+			if tc.want != "" {
+				want := "persona: 配置错误 personas.default.tools=" + tc.tool + ": " + tc.want
+				if err == nil || err.Error() != want {
+					t.Fatalf("%v want %s", err, want)
+				}
+			} else if err != nil || !cfg.memoryToolsEnabled {
+				t.Fatalf("%+v %v", cfg, err)
+			}
+		})
 	}
 }

@@ -55,6 +55,15 @@ PERSONA_MEMORY_CONTEXT_HOST_BINARY=/tmp/persona-memory-devhost go test ./interna
 
 测试使用独立 schema，通过仅供该宿主使用的 TCP 转发切断数据库链路，确认 debug 提示词含记忆块、模型回复提及摘要，故障后仍回复；不会停止共享 PostgreSQL，也不连接 QQ。
 
+S6 显式查询真实宿主验收（仅向已配置聊天模型发送固定合成摘要，不读取真实会话）：
+
+```bash
+go build -C cmd/devhost -o /tmp/persona-memory-devhost .
+PERSONA_MEMORY_SUMMARY_HOST_BINARY=/tmp/persona-memory-devhost go test ./internal/memory -run TestRuntimeHostSummaryTool -v -count=1
+```
+
+同样需要测试 DSN 与宿主聊天模型配置。测试询问上周三（附明确日期），检查 `memory__summary` 调用成功且回复包含对应摘要。
+
 ## 11.2 单元测试矩阵
 
 ```text
@@ -64,6 +73,7 @@ PERSONA_MEMORY_CONTEXT_HOST_BINARY=/tmp/persona-memory-devhost go test ./interna
 | 用例 | 断言 |
 | --- | --- |
 | S4 LLM 客户端 | 凭据及 JSON 模式、宿主超时隔离、网络退避、结构修复与 token 统计 |
+| S6 显式查询与工具 | 日期补全与非法范围、关键词排序与零相关回落、Limit 边界、会话隔离、工具 schema 与错误映射、人格继承及过滤、MCP 刷新保留记忆工具 |
 | S6 滚动摘要 | 200 条触发与每日次数上限、增量合并与固定运行序号重放、日摘要并发替换、滚动候选与短期历史去重；`TestRuntimeRollingLifecycle` 以真实 Service / PostgreSQL、HTTP 桩与可控时钟覆盖凌晨归属至日摘要替换 |
 | S5 读取与注入 | 最近三天日摘要、可信会话隔离、关键词及时间打分、话题去重、行预算、提示词位置、随机轮次读取、错误及超时降级 |
 | S4 日摘要 | 切片与预过滤、来源及归属校验、确定性合并、跨天延续、失败日期重试、幂等覆盖与空结果清理 |
