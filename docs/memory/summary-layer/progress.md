@@ -78,13 +78,14 @@
 
 ### S6 滚动摘要与显式查询（§16.3.8）
 
+- [ ] 摘要日日界改为 `memory_daily_at`（§16.2.3），迁移 `store.LocalDate` 全部调用点
 - [ ] 滚动摘要触发与流水线、读取侧滚动候选与短期窗口去重
 - [ ] `QuerySummaries`、`memory__summary`、`toolsFor` 迁移
 - [ ] 配置键与人格 `tools` 校验
 - [ ] 验收表全部通过
-- [ ] 运行验收：当天出现滚动摘要、次日被替换；模型调用 `memory__summary`
+- [ ] 运行验收：当天出现滚动摘要、次日被替换；凌晨消息归入前一天；模型调用 `memory__summary`
 - [ ] 质量门全绿
-- [ ] 文档同步：`configuration.md`、`architecture.md` 第 1 / 5 章，核对 `mcp.md`
+- [ ] 文档同步：`configuration.md`（含 `memory_daily_at` 日界）、`overview.md` 每日任务链、`architecture.md` 第 1 / 5 章，核对 `mcp.md`
 
 ### S7 评测与调参（§16.3.9）
 
@@ -111,6 +112,8 @@
 | 2026-11-08 | S1 | 远程 PostgreSQL 上 `TestConcurrentEnqueueAndStop` 稳定失败（`Written` 少一批、`Duplicates` 多一批）：`Stop` 取消 ctx 时正在 COMMIT 的批次服务端已提交、客户端报错，flush 重写后整批记成重复。改为 `Stop` 后正在写的批次与 flush 共用 `flushTimeout` 收尾时限，不再立即打断 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.3 |
 | 2026-11-08 | S4 | 评审后调整：切片小结的网络、超时或 HTTP 错误让当天失败重试，只有输出修复后仍不合规的切片可被跳过；合并输入的要点只给 `type` 与 `text`；脱敏改在截断之前；切片输入首行补 `群聊「…」` / `私聊「…」` 标签；`JobResult` 的 `days` / `failed_days` 明确为跨尝试累计天次；LLM 客户端去掉对 `topics` 的硬编码检查，结构校验只由 `Validate` 负责；正则改为包级预编译 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.6 |
 | 2026-11-08 | S5 | `windowDays` 导出为 `WindowDays`，让日摘要延续与读取共用三日窗口；`memoryContext` 不保留本阶段不使用的轮次参数，随机与寻址均走同一路径 | 已同步到设计文档 §16.3.6–16.3.7 与全部调用点 |
+| 2026-11-08 | S1–S6 | 开发前评审决定：摘要日以 `memory_daily_at` 为日界（默认当天 04:00 至次日 04:00 算同一天，`00:00` 即自然日），由 `store.LocalDate(t, loc, dayStart)` 统一换算，作为 S6 第一步单独实现；已入库数据不迁移 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.2.3、§16.3.3、§16.3.5、§16.3.7、§16.3.8；`configuration.md`、`overview.md` 随实现同步 |
+| 2026-11-08 | S6 | 开发前评审补定：滚动任务开始前与写入加锁后两次检查 `summarized_upto_id`，已有值即退出，D 不是今天不作为退出条件；更新今日滚动话题时保留 topic_key 与 `first_*`、参与者与要点取并集、标题摘要用新输出，已被今日滚动话题延续的 `k` 不再延续；新增 `RollingMergeSystem` 全文，日摘要提示词不变；新键序号为 `rolling_runs+1`，进度按开始时读到的 `msg_count` / `last_msg_id` 推进；读取侧滚动行排最前、不受 θ、无概况，「最近一天」只按日摘要计算，先按 `HistorySince` 跳过再去重；显式查询的单端日期补全、同日日摘要优先、零相关时退回日期排序，工具描述补充「按日期问时不要填 query」；触发测试移到 `ingest_test.go`，「写事务第 5 步」改为「第 4 步之后」 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.8 |
 
 ## 迭代验证记录
 
