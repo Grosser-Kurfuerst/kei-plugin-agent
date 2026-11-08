@@ -172,7 +172,7 @@ func evaluateRun(t *testing.T, run int, cases []evalCase, env map[string]string,
 	}
 	t.Logf("run=%d: cases=%d coverage=%s fragmentation=%s coarseness=%s continuity=%s tokens/case=%.1f",
 		run, metrics.Cases, evalPercent(metrics.Covered, metrics.Labels), evalPercent(metrics.Fragmented, metrics.Labels),
-		evalPercent(metrics.Coarse, metrics.Cases), evalPercent(metrics.ContinuityOK, metrics.ContinuityTotal), evalTokenAverage(metrics))
+		evalPercent(metrics.Coarse, metrics.Generated), evalPercent(metrics.ContinuityOK, metrics.ContinuityTotal), evalTokenAverage(metrics))
 	return metrics
 }
 
@@ -225,7 +225,7 @@ type evalCaseResult struct {
 type evalMetrics struct {
 	Cases                         int
 	Labels, Covered, Fragmented   int
-	Coarse                        int
+	Generated, Coarse             int
 	ContinuityTotal, ContinuityOK int
 	Tokens                        int64
 }
@@ -237,6 +237,7 @@ func computeEvalMetrics(results []evalCaseResult) evalMetrics {
 	for _, result := range results {
 		metrics.Cases++
 		metrics.Tokens += result.Tokens
+		metrics.Generated += len(result.Topics)
 		labels := result.Case.Labels.Topics
 		matched := make([][]int, len(labels))
 		labelKeys := map[string][]string{}
@@ -323,30 +324,32 @@ func logEvalCase(t *testing.T, run int, result evalCaseResult) {
 	}
 }
 
+// logEvalAverages 把各次运行的分子分母分别累加后求比例：以标注数为分母的指标与逐次平均一致，过粗率按生成话题数加权。
 func logEvalAverages(t *testing.T, runs []evalMetrics) {
 	t.Helper()
-	var coverage, fragmentation, coarseness, continuity, tokens float64
+	var total evalMetrics
 	for _, metrics := range runs {
-		coverage += evalRatio(metrics.Covered, metrics.Labels)
-		fragmentation += evalRatio(metrics.Fragmented, metrics.Labels)
-		coarseness += evalRatio(metrics.Coarse, metrics.Cases)
-		continuity += evalRatio(metrics.ContinuityOK, metrics.ContinuityTotal)
-		tokens += evalTokenAverage(metrics)
+		total.Cases += metrics.Cases
+		total.Labels += metrics.Labels
+		total.Covered += metrics.Covered
+		total.Fragmented += metrics.Fragmented
+		total.Generated += metrics.Generated
+		total.Coarse += metrics.Coarse
+		total.ContinuityTotal += metrics.ContinuityTotal
+		total.ContinuityOK += metrics.ContinuityOK
+		total.Tokens += metrics.Tokens
 	}
-	count := float64(len(runs))
-	t.Logf("评测平均：runs=%d coverage=%.1f%% fragmentation=%.1f%% coarseness=%.1f%% continuity=%.1f%% tokens/case=%.1f",
-		len(runs), coverage/count*100, fragmentation/count*100, coarseness/count*100, continuity/count*100, tokens/count)
+	t.Logf("评测平均：runs=%d coverage=%s fragmentation=%s coarseness=%s continuity=%s tokens/case=%.1f",
+		len(runs), evalPercent(total.Covered, total.Labels), evalPercent(total.Fragmented, total.Labels),
+		evalPercent(total.Coarse, total.Generated), evalPercent(total.ContinuityOK, total.ContinuityTotal), evalTokenAverage(total))
 }
 
-func evalRatio(numerator, denominator int) float64 {
-	if denominator == 0 {
-		return 0
-	}
-	return float64(numerator) / float64(denominator)
-}
-
+// evalPercent 在分母为 0（如没有带 continues 的标注）时输出 N/A，避免与真实的 0% 混淆。
 func evalPercent(numerator, denominator int) string {
-	return fmt.Sprintf("%.1f%%", evalRatio(numerator, denominator)*100)
+	if denominator == 0 {
+		return "N/A"
+	}
+	return fmt.Sprintf("%.1f%%", float64(numerator)*100/float64(denominator))
 }
 
 func evalTokenAverage(metrics evalMetrics) float64 {
@@ -354,4 +357,46 @@ func evalTokenAverage(metrics evalMetrics) float64 {
 		return 0
 	}
 	return float64(metrics.Tokens) / float64(metrics.Cases)
+}
+
+func TestComputeEvalMetrics(t *testing.T) {
+	day1 := evalCaseResult{
+		Case: evalCase{Conv: "c", Labels: evalLabels{Topics: []evalLabel{
+			{Title: "聚餐", Keywords: []string{"聚餐"}},
+			{Title: "考试", Keywords: []string{"考试"}},
+		}}},
+		Topics: []store.Topic{
+			{TopicKey: "k1", Title: "聚餐与考试", Summary: "先聊聚餐再聊考试"},
+			{TopicKey: "k2", Title: "聚餐地点"},
+		},
+		Tokens: 10,
+	}
+	day2 := evalCaseResult{
+		Case: evalCase{Conv: "c", Labels: evalLabels{Topics: []evalLabel{
+			{Title: "聚餐续", Keywords: []string{"聚餐"}, Continues: "聚餐"},
+			{Title: "考试续", Keywords: []string{"考试"}, Continues: "考试"},
+			{Title: "篮球", Keywords: []string{"篮球"}},
+		}}},
+		Topics: []store.Topic{
+			{TopicKey: "k2", Title: "聚餐结账"},
+			{TopicKey: "k3", Title: "考试复习"},
+		},
+		Tokens: 30,
+	}
+	got := computeEvalMetrics([]evalCaseResult{day1, day2})
+	want := evalMetrics{
+		Cases: 2, Labels: 5, Covered: 4, Fragmented: 1,
+		Generated: 4, Coarse: 1,
+		ContinuityTotal: 2, ContinuityOK: 1,
+		Tokens: 40,
+	}
+	if got != want {
+		t.Fatalf("指标 = %+v，期望 %+v", got, want)
+	}
+	if p := evalPercent(0, 0); p != "N/A" {
+		t.Fatalf("分母为 0 = %q，期望 N/A", p)
+	}
+	if p := evalPercent(1, 4); p != "25.0%" {
+		t.Fatalf("1/4 = %q", p)
+	}
 }
