@@ -76,6 +76,19 @@ PERSONA_MEMORY_EVAL_DATE=2026-11-07 PERSONA_MEMORY_EVAL_CASE=g1-2026-11-07 \
 go test ./internal/memory/summary -run TestEvalExport -v -count=1
 ```
 
+A：摘要与话题归类。回放 case、调用真实流水线，每次运行新建隔离 schema；大小模型应与生产的 `memory_llm_model_small` / `memory_llm_model_large` 一致：
+
+```bash
+PERSONA_MEMORY_TEST_DSN='postgres://...' \
+PERSONA_MEMORY_EVAL_CASES_DIR="$PWD/bin/eval/cases" \
+PERSONA_MEMORY_EVAL_LLM_BASE_URL='https://.../v1' PERSONA_MEMORY_EVAL_LLM_API_KEY='...' \
+PERSONA_MEMORY_EVAL_LLM_MODEL_SMALL='...' PERSONA_MEMORY_EVAL_LLM_MODEL_LARGE='...' \
+PERSONA_MEMORY_EVAL_RUNS=3 \
+go test ./internal/memory/summary -run TestEvalDaily -v -count=1 > bin/eval/daily-report.txt
+```
+
+`PERSONA_MEMORY_EVAL_RUNS` 缺省为 3。报告含生成的摘要内容，写到被忽略的 `bin/`，不提交；指标与改动摘要追加到 [`internal/memory/summary/testdata/eval/RESULTS.md`](../internal/memory/summary/testdata/eval/RESULTS.md)。
+
 ## 11.2 单元测试矩阵
 
 ```text
