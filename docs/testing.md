@@ -64,6 +64,18 @@ PERSONA_MEMORY_SUMMARY_HOST_BINARY=/tmp/persona-memory-devhost go test ./interna
 
 同样需要测试 DSN 与宿主聊天模型配置。测试询问上周三（附明确日期），检查 `memory__summary` 调用成功且回复包含对应摘要。
 
+S7 评测：case 与映射表含真实数据，只能放在仓库外或被忽略的目录（如 `bin/eval/`），不得提交；仓库只提交 `internal/memory/summary/testdata/eval/RESULTS.md`。评测测试只在对应环境变量齐全时运行，否则 `t.Skip`。
+
+导出（源库只读；case 名为 `<会话代号>-<YYYY-MM-DD>`）：
+
+```bash
+export PERSONA_MEMORY_EVAL_CASES_DIR="$PWD/bin/eval/cases"
+export PERSONA_MEMORY_EVAL_ID_MAP="$PWD/bin/eval/id_map.json"
+PERSONA_MEMORY_EVAL_SOURCE_DSN='postgres://...' PERSONA_MEMORY_EVAL_CONV='group:onebot:...' \
+PERSONA_MEMORY_EVAL_DATE=2026-11-07 PERSONA_MEMORY_EVAL_CASE=g1-2026-11-07 \
+go test ./internal/memory/summary -run TestEvalExport -v -count=1
+```
+
 ## 11.2 单元测试矩阵
 
 ```text
