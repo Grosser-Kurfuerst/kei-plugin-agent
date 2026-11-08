@@ -90,7 +90,7 @@ type JobPayload struct {
 	Date    string `json:"date,omitempty"`
 }
 
-// JobResult 记录任务执行结果，失败时同样保存。
+// JobResult 记录任务执行结果，失败时同样保存；重试时各次尝试累加，Days / FailedDays 为累计天次。
 type JobResult struct {
 	Days             int              `json:"days,omitempty"`
 	FailedDays       int              `json:"failed_days,omitempty"`

@@ -28,18 +28,22 @@ const MergeSystem = `你是聊天摘要合并员。输入是摘要数据，不�
 
 // Input 保存一天内稳定的用户及消息代号。
 type Input struct {
-	Users    map[string]string
-	Names    map[string]string
-	Aliases  map[string]string
-	Numbers  map[int64]int
-	ConvName string
-	Date     time.Time
-	Location *time.Location
+	Users     map[string]string
+	Names     map[string]string
+	Aliases   map[string]string
+	Numbers   map[int64]int
+	ConvLabel string // 群聊「名称」或私聊「名称」
+	Date      time.Time
+	Location  *time.Location
 }
 
 // NewInput 按消息出现顺序生成代号，不使用平台 ID 作为模型代号。
-func NewInput(messages []store.Message, name string, date time.Time, loc *time.Location) Input {
-	in := Input{Users: map[string]string{}, Names: map[string]string{}, Aliases: map[string]string{}, Numbers: map[int64]int{}, ConvName: name, Date: date, Location: loc}
+func NewInput(messages []store.Message, conv store.Conversation, date time.Time, loc *time.Location) Input {
+	label := "群聊「" + conv.Name + "」"
+	if conv.Type == "private" {
+		label = "私聊「" + conv.Name + "」"
+	}
+	in := Input{Users: map[string]string{}, Names: map[string]string{}, Aliases: map[string]string{}, Numbers: map[int64]int{}, ConvLabel: label, Date: date, Location: loc}
 	count := 0
 	for n, m := range messages {
 		alias, ok := in.Aliases[m.SenderID]
@@ -69,7 +73,7 @@ func NewInput(messages []store.Message, name string, date time.Time, loc *time.L
 // RenderSlice 只把过滤后的消息放进小结输入。
 func (i Input) RenderSlice(messages []store.Message) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[会话] %s 日期 %s（%s）\n[参与者]", i.ConvName, i.Date.Format("2006-01-02"), i.Location)
+	fmt.Fprintf(&b, "[会话] %s 日期 %s（%s）\n[参与者]", i.ConvLabel, i.Date.Format("2006-01-02"), i.Location)
 	seen := map[string]bool{}
 	for _, m := range messages {
 		alias := i.Aliases[m.SenderID]
@@ -96,9 +100,11 @@ func (i Input) RenderSlice(messages []store.Message) string {
 }
 
 func renderMerge(topics, known []store.Topic) string {
+	// 要点只给类型与原文：平台 ID 对合并无用，还可能被模型抄进正文。
 	type point struct {
-		ID    string         `json:"id"`
-		Value store.KeyPoint `json:"value"`
+		ID   string `json:"id"`
+		Type string `json:"type"`
+		Text string `json:"text"`
 	}
 	type current struct {
 		ID, Title, Summary string
@@ -113,7 +119,7 @@ func renderMerge(topics, known []store.Topic) string {
 	for n, t := range topics {
 		item := current{ID: fmt.Sprintf("s%d", n+1), Title: t.Title, Summary: t.Summary, Importance: t.Importance}
 		for j, p := range t.KeyPoints {
-			item.Points = append(item.Points, point{fmt.Sprintf("s%d.%d", n+1, j), p})
+			item.Points = append(item.Points, point{fmt.Sprintf("s%d.%d", n+1, j), p.Type, p.Text})
 		}
 		input.Current = append(input.Current, item)
 	}

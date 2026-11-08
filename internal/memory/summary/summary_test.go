@@ -78,7 +78,7 @@ func TestPrefilter(t *testing.T) {
 func TestNormalization(t *testing.T) {
 	msgs := sample()
 	msgs[2].MsgID = ""
-	in := NewInput(msgs, "群", time.Now(), time.UTC)
+	in := NewInput(msgs, store.Conversation{Type: "group", Name: "群"}, time.Now(), time.UTC)
 	out := SliceOutput{Topics: []SliceTopic{{Title: "u1 联系 u2", Summary: "邮箱 x@y.com 电话 13812345678 证件 123456789012345678", Participants: []string{"u1", "bot", "bad"}, Importance: 2, KeyPoints: []Point{
 		{Type: "todo", Text: "u1 去订餐", Speaker: "u1", Owner: "bad", Refs: []int{1, 3, 99}},
 		{Type: "decision", Text: "错误归属", Speaker: "u2", Refs: []int{1}},
@@ -97,6 +97,16 @@ func TestNormalization(t *testing.T) {
 	}
 	if topic.FirstMsgID != 1 || topic.LastMsgID != 6 {
 		t.Fatal("范围未取完整切片")
+	}
+	if !strings.HasPrefix(in.RenderSlice(msgs), "[会话] 群聊「群」") {
+		t.Fatal("切片输入缺少群聊标签")
+	}
+	private := NewInput(msgs, store.Conversation{Type: "private", Name: "张三"}, time.Now(), time.UTC)
+	if !strings.HasPrefix(private.RenderSlice(msgs), "[会话] 私聊「张三」") {
+		t.Fatal("切片输入缺少私聊标签")
+	}
+	if got := in.clean(strings.Repeat("字", 15)+"13812345678", 20); strings.Contains(got, "138") {
+		t.Fatalf("截断后残留手机号片段：%s", got)
 	}
 	in.Names["u12"] = "王五"
 	if got := in.clean("u12 与 u1", 60); got != "王五 与 张三" {
@@ -129,6 +139,14 @@ func TestMerge(t *testing.T) {
 	fallback, overview := Merge(MergeOutput{}, source, known, "c", date, true)
 	if len(fallback) != 4 || overview != "聚餐；交通；遗漏重要" || fallback[0].ContinuesFrom != "" {
 		t.Fatal("兜底错误")
+	}
+	input := renderMerge(source, nil)
+	if !strings.Contains(input, `"text":"原文"`) || strings.Contains(input, "id0") || strings.Contains(input, "speaker") {
+		t.Fatalf("合并输入要点应只含类型与原文：%s", input)
+	}
+	merged, _ := Merge(MergeOutput{Overview: "电话13812345678", Topics: []MergedTopic{{From: []string{"s1"}, Title: strings.Repeat("字", 15) + "13812345678"}}}, source[:1], nil, "c", date, false)
+	if strings.Contains(merged[0].Title, "138") {
+		t.Fatalf("合并标题截断前未脱敏：%s", merged[0].Title)
 	}
 	if ShortSummary("一句话。第二句") != "一句话" {
 		t.Fatal("短摘要错误")

@@ -109,7 +109,7 @@
 | 2026-11-05 | S1 | 按「不留占位」，`New` 在 S1 不带 `httpClient`（S4 引入 LLM 客户端时再加）；`prepare` 清洗 `Text` 与名字中的非法 UTF-8 和 `\x00`，`Enqueue` 复制 `Mentions`；数据库从未就绪时 `Stop` 对队列残留记 `Warn` | 已同步到 [`summary-layer.md`](summary-layer.md) §16.2.4、§16.3.3、§16.3.4、§16.3.6 |
 | 2026-11-05 | S2 | 实现时补全的细节：`p.mem.Start` 放在 MCP 目录加载成功之后；`memEpoch` 在 `Start` 记录；`/agent memory` 不建会话状态，缺参或参数非法回用法文本；自身回复的 `Conv` 取自发送目标（与 `channelState` 同源） | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.4 |
 | 2026-11-08 | S1 | 远程 PostgreSQL 上 `TestConcurrentEnqueueAndStop` 稳定失败（`Written` 少一批、`Duplicates` 多一批）：`Stop` 取消 ctx 时正在 COMMIT 的批次服务端已提交、客户端报错，flush 重写后整批记成重复。改为 `Stop` 后正在写的批次与 flush 共用 `flushTimeout` 收尾时限，不再立即打断 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.3 |
-
+| 2026-11-08 | S4 | 评审后调整：切片小结的网络、超时或 HTTP 错误让当天失败重试，只有输出修复后仍不合规的切片可被跳过；合并输入的要点只给 `type` 与 `text`；脱敏改在截断之前；切片输入首行补 `群聊「…」` / `私聊「…」` 标签；`JobResult` 的 `days` / `failed_days` 明确为跨尝试累计天次；LLM 客户端去掉对 `topics` 的硬编码检查，结构校验只由 `Validate` 负责；正则改为包级预编译 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.6 |
 | 2026-11-08 | S5 | `windowDays` 导出为 `WindowDays`，让日摘要延续与读取共用三日窗口；`memoryContext` 不保留本阶段不使用的轮次参数，随机与寻址均走同一路径 | 已同步到设计文档 §16.3.6–16.3.7 与全部调用点 |
 
 ## 迭代验证记录

@@ -51,10 +51,20 @@ func truncate(s string, n int) string {
 	return s
 }
 
-// Redact 替换明确可识别的手机号、证件号与邮箱。
+// 预编译的正则只读，可安全并发使用。
+var (
+	sensitivePatterns = []*regexp.Regexp{
+		regexp.MustCompile(`\b1[3-9]\d{9}\b`),
+		regexp.MustCompile(`\b\d{17}[\dXx]\b`),
+		regexp.MustCompile(`[\w.+-]+@[\w-]+(\.[\w-]+)+`),
+	}
+	aliasPattern = regexp.MustCompile(`\b(u[0-9]+|bot)\b`)
+)
+
+// Redact 替换明确可识别的手机号、证件号与邮箱；须在截断前调用，避免截断后的残段漏匹配。
 func Redact(s string) string {
-	for _, pattern := range []string{`\b1[3-9]\d{9}\b`, `\b\d{17}[\dXx]\b`, `[\w.+-]+@[\w-]+(\.[\w-]+)+`} {
-		s = regexp.MustCompile(pattern).ReplaceAllString(s, "[已隐去]")
+	for _, pattern := range sensitivePatterns {
+		s = pattern.ReplaceAllString(s, "[已隐去]")
 	}
 	return s
 }
@@ -77,13 +87,13 @@ func ShortSummary(text string) string {
 }
 
 func (i Input) clean(text string, limit int) string {
-	text = regexp.MustCompile(`\b(u[0-9]+|bot)\b`).ReplaceAllStringFunc(text, func(alias string) string {
+	text = aliasPattern.ReplaceAllStringFunc(text, func(alias string) string {
 		if name, ok := i.Names[alias]; ok {
 			return name
 		}
 		return alias
 	})
-	return Redact(truncate(text, limit))
+	return truncate(Redact(text), limit)
 }
 
 // Normalize 校验引用与归属，并回填平台 ID；范围取整个原始切片。

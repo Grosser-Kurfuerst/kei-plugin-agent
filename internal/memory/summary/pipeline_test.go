@@ -183,6 +183,72 @@ func TestPipelineFailedDayContinuesAndRetry(t *testing.T) {
 	}
 }
 
+// 两个切片中一个失败：输出不合规时当天照常写入；HTTP 错误时当天失败、不设进度，留待重试。
+func TestPipelineSliceErrorKinds(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		fail     func(http.ResponseWriter)
+		dayFails bool
+	}{
+		{"invalid_output", func(w http.ResponseWriter) { mockAnswer(w, `{"topics":null}`) }, false},
+		{"http_error", func(w http.ResponseWriter) { w.WriteHeader(http.StatusBadRequest) }, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pipeline, db := testPipeline(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req struct {
+					Model    string
+					Messages []struct{ Content string }
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Error(err)
+				}
+				switch {
+				case req.Model == "large":
+					mockAnswer(w, `{"overview":"聚餐","topics":[{"from":["s1"],"title":"聚餐","summary":"讨论聚餐"}]}`)
+				case strings.Contains(req.Messages[1].Content, " 11:0"):
+					tc.fail(w)
+				default:
+					mockAnswer(w, sliceAnswer)
+				}
+			}))
+			date := time.Date(2026, 11, 7, 0, 0, 0, 0, time.UTC)
+			var messages []store.Message
+			for n := range 12 {
+				m := sample()[n%6]
+				m.ID = 0
+				m.ConvKey = "c"
+				m.MsgID = fmt.Sprint(n)
+				m.DedupeKey = m.MsgID
+				m.Mentions = []string{}
+				m.LocalDate = date
+				m.SentAt = date.Add(time.Duration(9+n/6*2)*time.Hour + time.Duration(n%6)*time.Minute)
+				messages = append(messages, m)
+			}
+			if err := db.WithContext(t.Context()).Create(&messages).Error; err != nil {
+				t.Fatal(err)
+			}
+			if err := db.WithContext(t.Context()).Create(&store.ConvDay{ConvKey: "c", LocalDate: date, MsgCount: len(messages), LastMsgID: messages[len(messages)-1].ID}).Error; err != nil {
+				t.Fatal(err)
+			}
+			result, err := pipeline.Daily(t.Context(), store.Job{Payload: store.JobPayload{ConvKey: "c"}})
+			if result.Slices != 2 || result.FailedSlices != 1 || (err != nil) != tc.dayFails {
+				t.Fatalf("result=%+v err=%v", result, err)
+			}
+			var day store.ConvDay
+			if err = db.WithContext(t.Context()).Where("conv_key = ?", "c").First(&day).Error; err != nil {
+				t.Fatal(err)
+			}
+			var n int64
+			if err = db.WithContext(t.Context()).Model(&store.Summary{}).Count(&n).Error; err != nil {
+				t.Fatal(err)
+			}
+			if tc.dayFails != (day.SummarizedUptoID == nil) || tc.dayFails != (n == 0) {
+				t.Fatalf("进度=%v 摘要数=%d", day.SummarizedUptoID, n)
+			}
+		})
+	}
+}
+
 func TestPipelineMergeFallback(t *testing.T) {
 	pipeline, db := testPipeline(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req struct{ Model string }

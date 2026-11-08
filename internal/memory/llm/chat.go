@@ -82,20 +82,12 @@ func (c *Client) ChatJSON(ctx context.Context, req Request, out Validator) (Usag
 		if err != nil {
 			return usage, err
 		}
-		// 先检查顶层结构，避免前次部分解码残留掩盖缺少 topics 的错误。
-		var shape map[string]json.RawMessage
-		err = json.Unmarshal([]byte(raw), &shape)
-		if err == nil && (len(shape["topics"]) == 0 || string(shape["topics"]) == "null") {
-			err = fmt.Errorf("缺少 topics 数组")
+		target := reflect.ValueOf(out)
+		if target.Kind() != reflect.Pointer || target.IsNil() {
+			return usage, fmt.Errorf("输出目标必须是非空指针")
 		}
-		if err == nil {
-			target := reflect.ValueOf(out)
-			if target.Kind() != reflect.Pointer || target.IsNil() {
-				return usage, fmt.Errorf("输出目标必须是非空指针")
-			}
-			target.Elem().SetZero() // 修复响应不能继承上次部分解码的字段。
-			err = json.Unmarshal([]byte(raw), out)
-		}
+		target.Elem().SetZero() // 修复响应不能继承上次部分解码的字段。
+		err = json.Unmarshal([]byte(raw), out)
 		if err == nil {
 			err = out.Validate()
 		}

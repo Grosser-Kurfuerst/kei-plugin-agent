@@ -10,9 +10,11 @@ import (
 	"github.com/RandomLemon/kei-plugin-persona/internal/memory/store"
 )
 
+var placeholderPattern = regexp.MustCompile(`\[(图片|表情|文件|卡片|引用|消息)\]`)
+
 // StripPlaceholders 删除消息中没有文本信息的占位符。
 func StripPlaceholders(text string) string {
-	return regexp.MustCompile(`\[(图片|表情|文件|卡片|引用|消息)\]`).ReplaceAllString(text, "")
+	return placeholderPattern.ReplaceAllString(text, "")
 }
 
 func filler(text string) bool {

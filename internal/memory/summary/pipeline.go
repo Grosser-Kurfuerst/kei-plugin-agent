@@ -61,7 +61,7 @@ func (p Pipeline) day(ctx context.Context, client *llm.Client, day store.ConvDay
 	if err := p.DB.WithContext(ctx).Where("conv_key = ?", day.ConvKey).First(&conv).Error; err != nil {
 		return err
 	}
-	input := NewInput(messages, conv.Name, day.LocalDate, p.Location)
+	input := NewInput(messages, conv, day.LocalDate, p.Location)
 	slices, dropped := Slice(messages)
 	result.Slices += len(slices)
 	result.DroppedSlices += dropped
@@ -106,6 +106,7 @@ dispatch:
 	wg.Wait()
 	active, failed := 0, 0
 	var topics []store.Topic
+	var callErr error
 	for _, out := range outputs {
 		result.PromptTokens += out.usage.PromptTokens
 		result.CompletionTokens += out.usage.CompletionTokens
@@ -115,11 +116,18 @@ dispatch:
 		if out.err != nil {
 			failed++
 			result.FailedSlices++
+			if callErr == nil && !errors.Is(out.err, llm.ErrInvalidOutput) {
+				callErr = out.err
+			}
 		}
 		topics = append(topics, out.topics...)
 	}
 	if ctx.Err() != nil {
 		return ctx.Err()
+	}
+	// 网络、超时与 HTTP 错误可能是临时故障：整天失败重试，避免永久丢失该切片。
+	if callErr != nil {
+		return callErr
 	}
 	if active > 0 && failed == active {
 		return fmt.Errorf("全部切片小结失败")

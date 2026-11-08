@@ -89,11 +89,11 @@ func Merge(output MergeOutput, source, known []store.Topic, conv string, date ti
 					topic.LastAt = s.LastAt
 				}
 			}
-			topic.Title = truncate(candidate.Title, 20)
+			topic.Title = truncate(Redact(candidate.Title), 20)
 			if topic.Title == "" {
 				topic.Title = best.Title
 			}
-			topic.Summary = truncate(candidate.Summary, 120)
+			topic.Summary = truncate(Redact(candidate.Summary), 120)
 			if topic.Summary == "" {
 				topic.Summary = best.Summary
 			}
@@ -141,7 +141,7 @@ func Merge(output MergeOutput, source, known []store.Topic, conv string, date ti
 			t.HasOpen = t.HasOpen || p.Type == "todo" || p.Type == "open_question"
 		}
 	}
-	overview := truncate(output.Overview, 60)
+	overview := truncate(Redact(output.Overview), 60)
 	if fallback || overview == "" {
 		ranked := slices.Clone(topics)
 		slices.SortStableFunc(ranked, func(a, b store.Topic) int {

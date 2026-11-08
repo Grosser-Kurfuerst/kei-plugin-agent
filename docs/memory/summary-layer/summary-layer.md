@@ -792,15 +792,15 @@ func (c *Client) ChatJSON(ctx context.Context, req Request, out Validator) (Usag
 | `importance` ∈ [0,1] | 截取 |
 | 既无 key point 也无 summary | 丢弃话题 |
 
-通过后回填：代号换回平台用户 ID，`refs` 换成 `msg_ids`（平台消息 ID，缺失用 `mem:<id>`）；标题、摘要、要点文本中残留的已知代号（按词边界匹配 `u<n>` 与 `bot`）兜底替换为昵称与人格显示名。再对标题、摘要、要点文本做敏感信息替换为 `[已隐去]`：手机号 `\b1[3-9]\d{9}\b`、身份证号 `\b\d{17}[\dXx]\b`、邮箱 `[\w.+-]+@[\w-]+(\.[\w-]+)+`。
+通过后回填：代号换回平台用户 ID，`refs` 换成 `msg_ids`（平台消息 ID，缺失用 `mem:<id>`）；标题、摘要、要点文本中残留的已知代号（按词边界匹配 `u<n>` 与 `bot`）兜底替换为昵称与人格显示名。再对标题、摘要、要点文本做敏感信息替换为 `[已隐去]`（先替换再截断，避免截断留下的号码残段漏匹配；合并输出的标题、摘要、`overview` 同样如此）：手机号 `\b1[3-9]\d{9}\b`、身份证号 `\b\d{17}[\dXx]\b`、邮箱 `[\w.+-]+@[\w-]+(\.[\w-]+)+`。
 
-单个切片失败计入 `result.failed_slices`；全部失败时该天失败。
+切片失败计入 `result.failed_slices`。输出修复后仍不合规（`llm.ErrInvalidOutput`）的切片记为失败，其余切片照常写入，全部不合规时该天失败；网络、超时或 HTTP 错误（客户端重试后仍失败）可能是临时故障，该天直接失败、不设进度，按任务退避重试，避免永久丢失该切片。
 
 切片话题的消息与时间范围取**整个切片**（含重叠上下文）的首末消息，不取 `refs`：没有要点的话题也有范围；范围偏宽只会让 S6 的短期窗口去重少跳过一些，不会误丢话题。`refs` 只用于生成要点的 `msg_ids`。
 
 *合并与延续判断*（大模型，温度 0.2）
 
-- 输入：当日全部切片话题，编号 `s1…`，要点编号 `s1.0`…；前 `WindowDays` 天的日摘要话题，编号 `k1…`，按 `local_date DESC, importance DESC` 取前 30 个，每个含 topic_key、日期、标题与一句话摘要（`summary` 第一个 `。！？!?；` 之前的部分，≤ 40 rune；S5 的简短行用同一函数）。
+- 输入：当日全部切片话题，编号 `s1…`，要点编号 `s1.0`…，要点只给 `type` 与 `text`（不给平台 ID 与 `msg_ids`，避免浪费 token 并被模型抄进正文）；前 `WindowDays` 天的日摘要话题，编号 `k1…`，按 `local_date DESC, importance DESC` 取前 30 个，每个含 topic_key、日期、标题与一句话摘要（`summary` 第一个 `。！？!?；` 之前的部分，≤ 40 rune；S5 的简短行用同一函数）。
 - 输出：
 
   ```json
@@ -845,7 +845,7 @@ func (c *Client) ChatJSON(ctx context.Context, req Request, out Validator) (Usag
 *其他*
 
 - `cleanup` 追加：删除 `local_date` 早于 `SummaryRetentionDays` 天的摘要（话题级联）。
-- `JobPayload` 追加 `ConvKey`；`JobResult` 追加 `days`、`failed_days`、`prompt_tokens`、`completion_tokens`、`slices`、`dropped_slices`、`failed_slices`、`merge_fallbacks`（任务内各天累加，失败的调用与失败的尝试也计入），按任务完成日期汇总即为成本。
+- `JobPayload` 追加 `ConvKey`；`JobResult` 追加 `days`、`failed_days`、`prompt_tokens`、`completion_tokens`、`slices`、`dropped_slices`、`failed_slices`、`merge_fallbacks`（任务内各天累加，失败的调用与失败的尝试也计入），按任务完成日期汇总即为成本。重试时各次尝试的结果继续累加：`days` / `failed_days` 是累计成功 / 失败的**天次**，重试后最终成功的任务 `failed_days` 仍可能 > 0，判断任务成败看 `status`。
 - 日志：LLM 超时或 5xx 记 `Warn`；输出不合规记 `Info`（带校验原因）；均带 `job_id`。
 
 *常量*：`sliceGapMinutes = 30`，`sliceMaxMsgs / sliceMaxChars = 200 / 8000`，`sliceMsgMaxChars = sliceMaxChars / 4 = 2000`（含省略号），`sliceOverlapMsgs = 10`，`jobMaxSlices = 80`，`sliceConcurrency = 4`，`WindowDays = 3`，`llmTemperature = 0.2`（切片小结与合并共用）。
@@ -885,9 +885,9 @@ func (c *Client) ChatJSON(ctx context.Context, req Request, out Validator) (Usag
 | `llm/chat_test.go` | 请求体与 `response_format` 正确；key 为空时不带鉴权头；额外请求头后叠加、可覆盖 `Authorization`；传入带 `Timeout` 的客户端时只用其 transport，超过该 `Timeout` 的响应仍能在 `LLMTimeout` 内收到；`500` / `429` / 超时重试 1 次，`400` 不重试；`usage` 被解析，多次尝试的用量累计，失败时也返回；解码失败或 `Validate` 报错触发修复请求且含原因，仍不合规返回错误 |
 | `summary/slicing_test.go` | 间隔切分；按条数拆分最多带 10 条重叠；按字数拆分时 4 条 2000 字后接 1 条 2000 字，第二片保留 3 条重叠和新消息；超长单条截断到 2000 rune（含省略号），与邻近消息同片且不修改原文；超过 `jobMaxSlices` 时只保留前 `jobMaxSlices` 个并计入 `dropped_slices` |
 | `summary/prefilter_test.go` | 占位符、纯表情 / 标点、单字重复（含「？？？」）、语气词、复读折叠；低于阈值的切片被丢弃；机器人消息保留但不计入真人 |
-| `summary/schema_test.go` | 校验表逐条生效；ID 回填正确；正文残留的 `u<n>` / `bot` 被换成昵称与人格显示名，`u12` 不被 `u1` 误替换；三类敏感信息被替换；切片话题的范围取整个切片 |
-| `summary/merge_test.go` | 合并校验表逐条生效（含重复 `s`、跨话题要点、重复 `continues`）；要点原样保留；遗漏的 `s` 按阈值处理；非法 `continues` 置空；topic_key 继承与新建格式；重要性取值；省调用；兜底的 `overview` 与 `merge_fallbacks` |
-| `summary/pipeline_test.go`（库 + 桩） | 样例日生成 1 份日摘要并设置进度；当天无切片或无话题时不写摘要、只设置进度，已有旧日摘要被删除；合并输出含敏感信息时写入前被替换；重跑后只剩一份、`version+1`；一个任务按日期升序处理多天，后一天的合并输入含前一天的话题；某天全部切片失败时继续处理后面的日期、任务返回错误，重试只处理仍未摘要的日期 |
+| `summary/schema_test.go` | 校验表逐条生效；ID 回填正确；输入首行带 `群聊「…」` / `私聊「…」`；正文残留的 `u<n>` / `bot` 被换成昵称与人格显示名，`u12` 不被 `u1` 误替换；三类敏感信息被替换，截断位置落在号码中间时也不残留片段；切片话题的范围取整个切片 |
+| `summary/merge_test.go` | 合并校验表逐条生效（含重复 `s`、跨话题要点、重复 `continues`）；要点原样保留；遗漏的 `s` 按阈值处理；非法 `continues` 置空；topic_key 继承与新建格式；重要性取值；省调用；兜底的 `overview` 与 `merge_fallbacks`；合并输入的要点只含 `type` 与 `text`；合并标题先脱敏再截断 |
+| `summary/pipeline_test.go`（库 + 桩） | 样例日生成 1 份日摘要并设置进度；当天无切片或无话题时不写摘要、只设置进度，已有旧日摘要被删除；合并输出含敏感信息时写入前被替换；重跑后只剩一份、`version+1`；一个任务按日期升序处理多天，后一天的合并输入含前一天的话题；某天全部切片失败时继续处理后面的日期、任务返回错误，重试只处理仍未摘要的日期；一个切片输出不合规时当天照常写入，一个切片 HTTP 错误时当天失败、不设进度 |
 | `store/migrate_test.go` | 摘要与话题表及索引被创建，在已有 S1–S3 表的库上重复迁移幂等 |
 | `jobs/*_test.go` | 只为窗口内有未摘要日期的会话建任务，每会话每天一个；已全部摘要的会话不建 |
 | 根包 `config_test.go` | LLM 键回落正确：`memory_llm_base_url` 为空时继承 `llm_api_key` 与 `llm_extra_headers`，已配置时不继承，显式值始终生效；`memory_llm_timeout` 默认 `120s`；校验文案逐字一致 |
