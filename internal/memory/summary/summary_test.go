@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/RandomLemon/kei-plugin-persona/internal/memory/store"
 )
@@ -131,5 +132,45 @@ func TestMerge(t *testing.T) {
 	}
 	if ShortSummary("一句话。第二句") != "一句话" {
 		t.Fatal("短摘要错误")
+	}
+}
+
+func TestSlicingCharacterBudgetShrinksOverlap(t *testing.T) {
+	var messages []store.Message
+	for n := range 5 {
+		messages = append(messages, store.Message{ID: int64(n + 1), Text: strings.Repeat("消息正文", 500), SentAt: time.Date(2026, 11, 7, 9, n, 0, 0, time.UTC)})
+	}
+	chunks, dropped := Slice(messages)
+	if len(chunks) != 2 || dropped != 0 || len(chunks[0]) != 4 || len(chunks[1]) != 4 || chunks[1][0].ID != 2 || chunks[1][3].ID != 5 {
+		t.Fatalf("字数拆分重叠不正确：%+v", chunks)
+	}
+	for _, chunk := range chunks {
+		chars := 0
+		for _, message := range chunk {
+			chars += utf8.RuneCountInString(message.Text)
+		}
+		if chars > sliceMaxChars {
+			t.Fatalf("正文预算超限：%d", chars)
+		}
+	}
+}
+
+func TestSlicingLongMessageSharesContextAndPreservesOriginal(t *testing.T) {
+	messages := sample()[:3]
+	original := strings.Repeat("长公告正文", 1800)
+	messages[1].Text = original
+	chunks, dropped := Slice(messages)
+	if len(chunks) != 1 || dropped != 0 || len(chunks[0]) != 3 {
+		t.Fatalf("长消息未与前后对话同片：%d", len(chunks))
+	}
+	text := chunks[0][1].Text
+	if utf8.RuneCountInString(text) != sliceMsgMaxChars || !strings.HasSuffix(text, "…") || !strings.HasPrefix(original, strings.TrimSuffix(text, "…")) {
+		t.Fatal("单条截断不符合预算或未保留开头")
+	}
+	if len(Prefilter(chunks[0])) != 3 {
+		t.Fatal("长消息和前后真人消息被预过滤丢弃")
+	}
+	if messages[1].Text != original {
+		t.Fatal("修改了调用方的原始正文")
 	}
 }

@@ -734,10 +734,10 @@ func (c *Client) ChatJSON(ctx context.Context, req Request, out Validator) (Usag
 - `daily_summary(conv)` 先取出该会话窗口内全部未摘要日期，按日期升序逐天执行下文的切片 → 预过滤 → 小结 → 合并 → 写入。每天单独一个写入事务：前一天写完，后一天的合并输入就能看到它的话题，延续判断不需要等待其他任务。
 - 某天失败时计入 `result.failed_days` 并继续处理后面的日期；有失败日期时任务返回错误、按 S3 退避重试，重试只处理仍未摘要的日期。超出 7 天窗口的日期不再补。
 
-*切片*：输入为当日未撤回消息，按 `(sent_at, id)` 排序。
+*切片*：输入为当日未撤回消息，按 `(sent_at, id)` 排序。字数预算只按消息正文的 rune 数计，不含提示词、发送者名与时间等。单条正文超过 `sliceMsgMaxChars` 时保留开头、末尾加 `…`，截断后的总长度不超过该上限；仅修改切片副本，不改原始消息。
 
 1. 相邻消息间隔超过 `sliceGapMinutes` 时开新切片。
-2. 超过 `sliceMaxMsgs` 或 `sliceMaxChars` 时硬拆分，后一段带前一段最后 10 条作重叠上下文。
+2. 超过 `sliceMaxMsgs` 或 `sliceMaxChars` 时硬拆分，后一段带前一段最多最后 `sliceOverlapMsgs`（10）条作重叠上下文；放不下新消息时从最早的重叠消息开始丢，直到满足 `sliceMaxChars`。
 3. 切片数超过 `jobMaxSlices` 时只处理前 `jobMaxSlices` 个，其余计入 `result.dropped_slices` 并记 `Warn`。
 
 *预过滤*（被过滤的消息不进提示词，但仍计入消息范围）
@@ -848,7 +848,7 @@ func (c *Client) ChatJSON(ctx context.Context, req Request, out Validator) (Usag
 - `JobPayload` 追加 `ConvKey`；`JobResult` 追加 `days`、`failed_days`、`prompt_tokens`、`completion_tokens`、`slices`、`dropped_slices`、`failed_slices`、`merge_fallbacks`（任务内各天累加，失败的调用与失败的尝试也计入），按任务完成日期汇总即为成本。
 - 日志：LLM 超时或 5xx 记 `Warn`；输出不合规记 `Info`（带校验原因）；均带 `job_id`。
 
-*常量*：`sliceGapMinutes = 30`，`sliceMaxMsgs / sliceMaxChars = 200 / 8000`，`jobMaxSlices = 80`，`sliceConcurrency = 4`，`windowDays = 3`，`llmTemperature = 0.2`（切片小结与合并共用）。
+*常量*：`sliceGapMinutes = 30`，`sliceMaxMsgs / sliceMaxChars = 200 / 8000`，`sliceMsgMaxChars = sliceMaxChars / 4 = 2000`（含省略号），`sliceOverlapMsgs = 10`，`jobMaxSlices = 80`，`sliceConcurrency = 4`，`windowDays = 3`，`llmTemperature = 0.2`（切片小结与合并共用）。
 
 *配置*
 
@@ -883,7 +883,7 @@ func (c *Client) ChatJSON(ctx context.Context, req Request, out Validator) (Usag
 | 测试位置 | 必须观察到的结果 |
 | --- | --- |
 | `llm/chat_test.go` | 请求体与 `response_format` 正确；key 为空时不带鉴权头；额外请求头后叠加、可覆盖 `Authorization`；传入带 `Timeout` 的客户端时只用其 transport，超过该 `Timeout` 的响应仍能在 `LLMTimeout` 内收到；`500` / `429` / 超时重试 1 次，`400` 不重试；`usage` 被解析，多次尝试的用量累计，失败时也返回；解码失败或 `Validate` 报错触发修复请求且含原因，仍不合规返回错误 |
-| `summary/slicing_test.go` | 间隔切分；超限拆分带 10 条重叠；超过 `jobMaxSlices` 时只保留前 `jobMaxSlices` 个并计入 `dropped_slices` |
+| `summary/slicing_test.go` | 间隔切分；按条数拆分最多带 10 条重叠；按字数拆分时 4 条 2000 字后接 1 条 2000 字，第二片保留 3 条重叠和新消息；超长单条截断到 2000 rune（含省略号），与邻近消息同片且不修改原文；超过 `jobMaxSlices` 时只保留前 `jobMaxSlices` 个并计入 `dropped_slices` |
 | `summary/prefilter_test.go` | 占位符、纯表情 / 标点、单字重复（含「？？？」）、语气词、复读折叠；低于阈值的切片被丢弃；机器人消息保留但不计入真人 |
 | `summary/schema_test.go` | 校验表逐条生效；ID 回填正确；正文残留的 `u<n>` / `bot` 被换成昵称与人格显示名，`u12` 不被 `u1` 误替换；三类敏感信息被替换；切片话题的范围取整个切片 |
 | `summary/merge_test.go` | 合并校验表逐条生效（含重复 `s`、跨话题要点、重复 `continues`）；要点原样保留；遗漏的 `s` 按阈值处理；非法 `continues` 置空；topic_key 继承与新建格式；重要性取值；省调用；兜底的 `overview` 与 `merge_fallbacks` |

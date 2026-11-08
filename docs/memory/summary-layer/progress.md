@@ -16,7 +16,7 @@
 | S1 存储与写入 | M1 | 已完成 | 2026-11-05 | 2026-11-05 | `feat/memory` e965e96 … 171d7bf | 未接入根包；golangci-lint 0 issues |
 | S2 根包接入采集 | M1 | 已完成 | 2026-11-05 | 2026-11-05 | `feat/memory` 8568c53 … d14dddf | 运行验收用最小 kei 宿主 + mock 适配器 + 本地 PostgreSQL 走通；golangci-lint 0 issues；2026-11-08 在 SnowLuma + PostgreSQL 测试部署（[`../deploy.md`](../deploy.md)）上复验通过：部署验收、运行中断库、启动时库不可达与恢复、DB 单测 |
 | S3 任务框架与清理 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `feat(memory): add scheduled jobs and retention cleanup` | 真实宿主分钟调度与 status 验收通过；质量门全绿，review 2 轮通过 |
-| S4 日摘要流水线 | M2 | 进行中 | 2026-11-08 | — | `feat(memory): implement daily summary pipeline` | 实现、本地质量门及 2 轮代码评审通过；待切片规则确认和真实数据调用批准 |
+| S4 日摘要流水线 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `4058e6d` + `fix(memory): bound summary message and overlap budgets` | 预算规则已确认；真实会话日与真实模型抽验通过；本轮质量门全绿、review 1 轮通过 |
 | S5 读取与注入 | M2 | 未开始 | — | — | — | — |
 | S6 滚动摘要与显式查询 | M2 | 未开始 | — | — | — | — |
 | S7 评测与调参 | M2 | 未开始 | — | — | — | — |
@@ -55,16 +55,16 @@
 - [x] 摘要与话题表、LLM 客户端、按会话建日摘要任务并逐天处理
 - [x] 切片、预过滤、切片小结、合并与兜底、写入
 - [x] 提示词全文完成并评审
-- [ ] 验收表全部通过
-- [ ] 运行验收：真实数据生成昨天的日摘要，人工抽读无明显编造或归属错误
+- [x] 验收表全部通过
+- [x] 运行验收：真实数据生成昨天的日摘要，人工抽读无明显编造或归属错误
 - [x] 质量门全绿
 - [x] 文档同步：`configuration.md` 的 `memory_llm_*`、`testing.md` §11.2
 
-待确认与验收：
+验收证据：
 
-- 方案的 8000 字切片上限与固定十条重叠可能冲突；当前实现优先预算、最多保留十条，等待用户确认后同步设计和边界验收。
-- `TestRuntimeDailySummary` 已准备，运行会从源库只读选一个真实会话日并发给现有配置的 `api.deepseek.com`；自动审批拒绝该数据发送，已请求用户批准，尚未执行。
-- `TestScheduledDailySummary` 已验证真实 Service 的调度、worker、HTTP 桩、摘要及 `mem_job.result`；它不替代真实模型与真实数据的抽验。
+- `TestRuntimeDailySummary`：经用户明确批准，将一个已采集会话日回放至隔离 schema，调用现有配置的 `api.deepseek.com`；25 条消息生成 3 个话题，25.83s 通过，prompt / completion tokens = 1476 / 4168。引用归属校验通过；对照来源抽读，主体与核心话题来自原文。单日运行抽验不代表 S7 正式质量指标达标。
+- `TestScheduledDailySummary`：真实 Service 调度、worker、HTTP 桩、摘要与 `mem_job.result` 集成验证通过；与上述真实模型 Handler 回放共同提供运行证据，不将二者混称一次完整宿主验收。
+- 用户确认预算优先；单条正文 2000 rune（含省略号），切片正文 8000 rune，重叠最多 10 条且按需缩减，文档与边界测试已同步。
 
 ### S5 读取与注入（§16.3.7）
 
@@ -115,3 +115,5 @@
 - S3（2026-11-08）：Nix devShell / `GOTOOLCHAIN=local` 下 `gofmt`、build、vet、带 PostgreSQL 独立 schema 的 test / race、lint 全通过（0 issues）。`TestRuntimeHostCleanup` 用真实 devhost、mock 控制面与分钟时钟，60.10s 通过：cleanup 完成且 status 显示任务行。review 2 轮，最终 `NO_BLOCKING_ISSUES`；修复状态落库失败重试、未启用记忆时的新增配置校验，补齐清理与停止验证；无未复评修复。
 
 - S4（2026-11-08，代码提交）：Nix devShell 下 build、vet、带 PostgreSQL 独立 schema 的 test / race、lint 全通过，0 issues，gofmt / diff check 干净。review 2 轮，代码最终 `NO_BLOCKING_ISSUES`；修复 JSON 修复响应的旧字段残留和任务超时时已完成调用的用量漏记，均有回归测试且经复评。未完成真实数据验收，阶段保持进行中；S5 尚未开始。
+
+- S4 收尾（2026-11-08）：按用户补充要求实现切片预算与单条截断规则，build / vet / 全仓 PostgreSQL race / lint 全过，0 issues。真实数据验收与来源抽读完成；本轮 review 1 轮，最终 `NO_BLOCKING_ISSUES`，无未复评修复。

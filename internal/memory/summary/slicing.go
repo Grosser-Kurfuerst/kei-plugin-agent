@@ -8,7 +8,7 @@ import (
 	"github.com/RandomLemon/kei-plugin-persona/internal/memory/store"
 )
 
-// Slice 按时间间隔和输入预算切片，超限拆分保留十条重叠。
+// Slice 按时间间隔和输入预算切片，正文预算优先，超限拆分最多保留 sliceOverlapMsgs 条重叠。
 func Slice(messages []store.Message) ([][]store.Message, int) {
 	messages = slices.Clone(messages)
 	slices.SortStableFunc(messages, func(a, b store.Message) int {
@@ -28,6 +28,10 @@ func Slice(messages []store.Message) ([][]store.Message, int) {
 	chars := 0
 	for _, m := range messages {
 		n := utf8.RuneCountInString(m.Text)
+		if n > sliceMsgMaxChars {
+			m.Text = truncate(m.Text, sliceMsgMaxChars-1) + "…"
+			n = sliceMsgMaxChars
+		}
 		gap := len(current) > 0 && m.SentAt.Sub(current[len(current)-1].SentAt) > sliceGapMinutes*time.Minute
 		if gap {
 			all = append(all, current)
@@ -36,7 +40,7 @@ func Slice(messages []store.Message) ([][]store.Message, int) {
 		}
 		if len(current) > 0 && (len(current) >= sliceMaxMsgs || chars+n > sliceMaxChars) {
 			all = append(all, current)
-			current = slices.Clone(current[max(0, len(current)-10):])
+			current = slices.Clone(current[max(0, len(current)-sliceOverlapMsgs):])
 			chars = 0
 			for _, v := range current {
 				chars += utf8.RuneCountInString(v.Text)

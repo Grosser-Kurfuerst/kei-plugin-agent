@@ -5,6 +5,8 @@ const (
 	sliceGapMinutes  = 30
 	sliceMaxMsgs     = 200
 	sliceMaxChars    = 8000
+	sliceMsgMaxChars = sliceMaxChars / 4
+	sliceOverlapMsgs = 10
 	jobMaxSlices     = 80
 	sliceConcurrency = 4
 	windowDays       = 3
