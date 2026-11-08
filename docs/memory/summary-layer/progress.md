@@ -18,7 +18,7 @@
 | S3 任务框架与清理 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `feat(memory): add scheduled jobs and retention cleanup` | 真实宿主分钟调度与 status 验收通过；质量门全绿，review 2 轮通过 |
 | S4 日摘要流水线 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `4058e6d` + `fix(memory): bound summary message and overlap budgets` | 预算规则已确认；真实会话日与真实模型抽验通过；本轮质量门全绿、review 1 轮通过 |
 | S5 读取与注入 | M2 | 已完成 | 2026-11-08 | 2026-11-08 | `feat(memory): inject recent daily summaries into replies` | 读取与注入、隔离与降级测试、真实宿主验收通过；review 2 轮通过 |
-| S6 滚动摘要与显式查询 | M2 | 未开始 | — | — | — | — |
+| S6 滚动摘要与显式查询 | M2 | 进行中 | 2026-11-08 | — | `feat(memory): add incremental rolling summaries` | 日界已完成；先实现滚动摘要与读取，再实现显式查询工具 |
 | S7 评测与调参 | M2 | 未开始 | — | — | — | — |
 
 ## 阶段清单
@@ -79,7 +79,7 @@
 ### S6 滚动摘要与显式查询（§16.3.8）
 
 - [x] 摘要日日界改为 `memory_daily_at`（§16.2.3），迁移 `store.LocalDate` 全部调用点
-- [ ] 滚动摘要触发与流水线、读取侧滚动候选与短期窗口去重
+- [x] 滚动摘要触发与流水线、读取侧滚动候选与短期窗口去重
 - [ ] `QuerySummaries`、`memory__summary`、`toolsFor` 迁移
 - [ ] 配置键与人格 `tools` 校验
 - [ ] 验收表全部通过
@@ -124,3 +124,5 @@
 - S4 收尾（2026-11-08）：按用户补充要求实现切片预算与单条截断规则，build / vet / 全仓 PostgreSQL race / lint 全过，0 issues。真实数据验收与来源抽读完成；本轮 review 1 轮，最终 `NO_BLOCKING_ISSUES`，无未复评修复。
 
 - S5（2026-11-08）：可信 Scene 与当前会话最近三日日摘要读取、关键词与时间打分、去重、预算和记忆块注入已完成；随机轮次同样读取，未启用时提示词逐字保持不变。Nix devShell 中 build / vet / 带 PostgreSQL 独立 schema 的全仓 race / lint 全过，0 issues；gofmt / diff check 干净。`TestRuntimeHostContext` 使用真实 devhost、现有聊天模型与固定合成聚餐摘要，debug 提示词含记忆块且回复提到聚餐；仅切断该测试宿主的数据库链路后仍正常回复并记录读取告警（未停止共享 PostgreSQL）。review 共 2 轮，最终 `NO_BLOCKING_ISSUES`；首轮功能评审通过，修正测试矩阵表格格式后通过收尾复核。最终源码的真实宿主验收复跑 2.28s 通过。无第三轮后未复评修复。
+
+- S6 滚动摘要（2026-11-08）：写事务触发、增量合并、日摘要并发替换及读取去重完成。Nix devShell 中 build / vet / 全仓 PostgreSQL test 与 race / lint 全通过，0 issues；gofmt / diff check 干净。`TestRuntimeRollingLifecycle` 使用真实 Service、worker、PostgreSQL 隔离 schema 与 HTTP 桩，通过可控时钟验证凌晨消息归前一摘要日、200 条触发 rolling、04:00 后 daily 替换。review 2 轮，最终 `NO_BLOCKING_ISSUES`；修复固定 Run 重放幂等、全话题延续时概况丢失，均有回归测试并复评。显式查询工具待下一提交；无未复评修复。

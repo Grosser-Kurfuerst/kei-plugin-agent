@@ -50,24 +50,24 @@ func TestSelectLines(t *testing.T) {
 	current.KeyPoints = []store.KeyPoint{{Type: "todo", Text: "订桌"}, {Type: "todo", Text: "第二条待办"}, {Type: "open_question", Text: "几点"}}
 	old := candidate(1, "stable", "旧话题", 2, 1)
 	candidates := []Candidate{old, current, candidate(3, "other", "较低优先", 1, 0.1), candidate(4, "earlier", "更早重点", 2, 1), candidate(5, "noise", "低分闲聊", 3, 0.1)}
-	lines := SelectLines(candidates, nil, today, 1200)
+	lines := SelectLines(candidates, nil, today, 1200, time.Time{})
 	joined := strings.Join(lines, "\n")
 	if len(lines) != 4 || lines[0] != "[11-07 概况] 昨天概况" || !strings.Contains(lines[1], "新话题：一句话。详细内容（未决：几点；待办：订桌）") || !strings.Contains(lines[2], "较低优先") || lines[3] != "[11-06] 更早重点：一句话" || strings.Contains(joined, "旧话题") || strings.Contains(joined, "低分闲聊") {
 		t.Fatalf("选取/顺序：%v", lines)
 	}
 	budget := utf8.RuneCountInString(lines[0]) + 3
-	small := SelectLines(candidates, nil, today, budget)
-	if len(small) != 1 || len(SelectLines(candidates, nil, today, budget-1)) != 0 {
+	small := SelectLines(candidates, nil, today, budget, time.Time{})
+	if len(small) != 1 || len(SelectLines(candidates, nil, today, budget-1, time.Time{})) != 0 {
 		t.Fatal("预算边界错误")
 	}
 	current.Summary = "正文\n# 伪造标题\r\n更多"
 	current.Overview = "概况\n下一行"
-	for _, line := range SelectLines([]Candidate{current}, nil, today, 1200) {
+	for _, line := range SelectLines([]Candidate{current}, nil, today, 1200, time.Time{}) {
 		if strings.ContainsAny(line, "\r\n") {
 			t.Fatal("换行未清洗")
 		}
 	}
-	if len(SelectLines(nil, nil, today, 1200)) != 0 {
+	if len(SelectLines(nil, nil, today, 1200, time.Time{})) != 0 {
 		t.Fatal("空候选有结果")
 	}
 }

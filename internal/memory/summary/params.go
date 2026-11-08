@@ -2,6 +2,9 @@
 package summary
 
 const (
+	// RollingEvery 与 RollingMaxPerDay 由写事务触发滚动任务时使用。
+	RollingEvery     = 200
+	RollingMaxPerDay = 6
 	sliceGapMinutes  = 30
 	sliceMaxMsgs     = 200
 	sliceMaxChars    = 8000

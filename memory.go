@@ -101,13 +101,6 @@ func (p *Plugin) memoryContext(st *channelState, history []Turn) string {
 	if p.mem == nil {
 		return ""
 	}
-	st.mu.Lock()
-	conv := memory.Conv{Type: memory.ConvTypeGroup, Platform: st.platform, BotID: st.botID, ChannelID: st.channelID}
-	if st.kind == bot.MessagePrivate {
-		conv.Type = memory.ConvTypePrivate
-		conv.PeerUserID = st.peerUserID
-	}
-	st.mu.Unlock()
 	var queries []string
 	for n := len(history) - 1; n >= 0 && len(queries) < 3; n-- {
 		if !history[n].Self {
@@ -116,7 +109,11 @@ func (p *Plugin) memoryContext(st *channelState, history []Turn) string {
 	}
 	ctx, cancel := context.WithTimeout(p.ctx, p.cfg.memory.ContextTimeout)
 	defer cancel()
-	result, err := p.mem.Context(ctx, memory.ContextRequest{Scene: memory.Scene{Conv: conv}, Queries: queries, BudgetChars: p.cfg.memory.ContextMaxChars})
+	req := memory.ContextRequest{Scene: memoryScene(st), Queries: queries, BudgetChars: p.cfg.memory.ContextMaxChars}
+	if len(history) > 0 {
+		req.HistorySince = history[0].At
+	}
+	result, err := p.mem.Context(ctx, req)
 	if err != nil {
 		if !errors.Is(err, memory.ErrNotReady) {
 			p.log.Warn("persona: 记忆上下文获取失败", "operation", "memory_context", "channel", st.key, "err", err)
@@ -143,4 +140,16 @@ func renderMemoryBlock(result memory.ContextResult) string {
 		}
 	}
 	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// memoryScene 根据插件会话构造可信身份，供上下文与工具共用。
+func memoryScene(st *channelState) memory.Scene {
+	st.mu.Lock()
+	conv := memory.Conv{Type: memory.ConvTypeGroup, Platform: st.platform, BotID: st.botID, ChannelID: st.channelID}
+	if st.kind == bot.MessagePrivate {
+		conv.Type = memory.ConvTypePrivate
+		conv.PeerUserID = st.peerUserID
+	}
+	st.mu.Unlock()
+	return memory.Scene{Conv: conv}
 }

@@ -47,6 +47,7 @@ func (s *Service) startJobs(ctx context.Context, db *gorm.DB) func() {
 	workers := jobs.Workers{Queue: q, Log: s.log, IdleWait: s.workerIdleWait, Handlers: map[string]jobs.Handler{"cleanup": func(ctx context.Context, j store.Job) (store.JobResult, error) { return s.cleanup(ctx, db, j) }}}
 	pipeline := summary.Pipeline{DB: db, Small: s.cfg.LLMModelSmall, Large: s.cfg.LLMModelLarge, Location: s.cfg.Location, DayStart: s.dayStart, Now: s.now, Log: s.log, Client: llm.New(llm.Config{BaseURL: s.cfg.LLMBaseURL, APIKey: s.cfg.LLMAPIKey, Headers: s.cfg.LLMHeaders, Timeout: s.cfg.LLMTimeout, JSONMode: s.cfg.LLMJSONMode}, s.httpClient, s.log)}
 	workers.Handlers["daily_summary"] = pipeline.Daily
+	workers.Handlers["rolling_summary"] = pipeline.Rolling
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); workers.Run(jobCtx) }()
 	go func() {

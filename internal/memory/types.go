@@ -64,9 +64,10 @@ type Scene struct{ Conv Conv }
 
 // ContextRequest 描述近期上下文查询及正文预算。
 type ContextRequest struct {
-	Scene       Scene
-	Queries     []string
-	BudgetChars int
+	Scene        Scene
+	Queries      []string
+	BudgetChars  int
+	HistorySince time.Time // 短期历史窗口起点；零值时不跳过
 }
 
 // Block 是根包渲染的记忆块，Lines 已完成清洗和预算选择。

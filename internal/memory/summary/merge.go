@@ -47,9 +47,22 @@ func index(value, prefix string, limit int) int {
 
 // Merge 规范化来源与延续关系；fallback 时完全由已校验切片话题生成结果。
 func Merge(output MergeOutput, source, known []store.Topic, conv string, date time.Time, fallback bool) ([]store.Topic, string) {
+	return merge(output, source, known, nil, conv, date, 0, fallback)
+}
+
+// MergeRolling 更新今日话题并保留未更新的话题，跨天延续仍复用日摘要规则。
+func MergeRolling(output MergeOutput, source, known, today []store.Topic, conv string, date time.Time, run int, fallback bool) ([]store.Topic, string) {
+	return merge(output, source, known, today, conv, date, run, fallback)
+}
+
+func merge(output MergeOutput, source, known, today []store.Topic, conv string, date time.Time, run int, fallback bool) ([]store.Topic, string) {
 	var topics []store.Topic
 	used := map[int]bool{}
 	continued := map[string]bool{}
+	updated := map[int]bool{}
+	for _, t := range today {
+		continued[t.TopicKey] = true
+	}
 	if !fallback {
 		for _, candidate := range output.Topics {
 			var selected []int
@@ -115,7 +128,26 @@ func Merge(output MergeOutput, source, known []store.Topic, conv string, date ti
 				seen[ref] = true
 				topic.KeyPoints = append(topic.KeyPoints, source[n].KeyPoints[p])
 			}
-			if n := index(candidate.Continues, "k", len(known)); n >= 0 && !continued[known[n].TopicKey] {
+			if n := index(candidate.Continues, "t", len(today)); n >= 0 && !updated[n] {
+				old := today[n]
+				updated[n] = true
+				topic.TopicKey, topic.ContinuesFrom = old.TopicKey, old.ContinuesFrom
+				topic.FirstMsgID, topic.FirstAt = old.FirstMsgID, old.FirstAt
+				for _, v := range topic.Participants {
+					old.Participants = appendUnique(old.Participants, v)
+				}
+				for _, v := range topic.Entities {
+					old.Entities = appendUnique(old.Entities, v)
+				}
+				for _, point := range topic.KeyPoints {
+					if !slices.ContainsFunc(old.KeyPoints, func(p store.KeyPoint) bool {
+						return p.Type == point.Type && p.Text == point.Text && p.Speaker == point.Speaker
+					}) {
+						old.KeyPoints = append(old.KeyPoints, point)
+					}
+				}
+				topic.Participants, topic.Entities, topic.KeyPoints = old.Participants, old.Entities, old.KeyPoints
+			} else if n := index(candidate.Continues, "k", len(known)); n >= 0 && !continued[known[n].TopicKey] {
 				topic.TopicKey = known[n].TopicKey
 				topic.ContinuesFrom = known[n].TopicKey
 				continued[topic.TopicKey] = true
@@ -130,15 +162,26 @@ func Merge(output MergeOutput, source, known []store.Topic, conv string, date ti
 			topics = append(topics, t)
 		}
 	}
+	newCount := 0
 	for n := range topics {
 		t := &topics[n]
 		if t.TopicKey == "" {
-			t.TopicKey = fmt.Sprintf("topic:%s:%s:%d", conv, date.Format("20060102"), n+1)
+			if run > 0 {
+				newCount++
+				t.TopicKey = fmt.Sprintf("topic:%s:%s:r%d.%d", conv, date.Format("20060102"), run, newCount)
+			} else {
+				t.TopicKey = fmt.Sprintf("topic:%s:%s:%d", conv, date.Format("20060102"), n+1)
+			}
 		}
 		t.ConvKey = conv
 		t.LocalDate = date
 		for _, p := range t.KeyPoints {
 			t.HasOpen = t.HasOpen || p.Type == "todo" || p.Type == "open_question"
+		}
+	}
+	for n, t := range today {
+		if !updated[n] {
+			topics = append(topics, t)
 		}
 	}
 	overview := truncate(Redact(output.Overview), 60)

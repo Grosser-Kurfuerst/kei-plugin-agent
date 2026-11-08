@@ -16,6 +16,7 @@ import (
 type Candidate struct {
 	store.Topic `gorm:"embedded"`
 	Overview    string
+	Kind        string
 }
 
 func bigrams(text string) map[string]struct{} {
@@ -83,16 +84,21 @@ func openItems(points []store.KeyPoint) string {
 }
 
 // SelectLines 去重、打分并按正文预算选取记忆行；预算含每行的列表前缀与换行。
-func SelectLines(candidates []Candidate, queries []string, today time.Time, budget int) []string {
+func SelectLines(candidates []Candidate, queries []string, today time.Time, budget int, historySince time.Time) []string {
 	if len(candidates) == 0 || budget <= 0 {
 		return nil
 	}
 	// 最新日期由全部候选决定，而非去重后剩余话题的排序。
-	latest := candidates[0].LocalDate
+	var latest time.Time
+	var latestOverview string
 	newest := map[string]Candidate{}
 	for _, candidate := range candidates {
-		if candidate.LocalDate.After(latest) {
+		if candidate.Kind == "rolling" && !historySince.IsZero() && !candidate.FirstAt.Before(historySince) {
+			continue
+		}
+		if candidate.Kind != "rolling" && candidate.LocalDate.After(latest) {
 			latest = candidate.LocalDate
+			latestOverview = candidate.Overview
 		}
 		old, ok := newest[candidate.TopicKey]
 		if !ok || candidate.LocalDate.After(old.LocalDate) || candidate.LocalDate.Equal(old.LocalDate) && candidate.ID < old.ID {
@@ -128,20 +134,26 @@ func SelectLines(candidates []Candidate, queries []string, today time.Time, budg
 	var pending []string
 	for _, item := range rankedTopics {
 		c := item.candidate
-		if c.LocalDate.Equal(latest) {
-			pending = append(pending, fmt.Sprintf("[%s 概况] %s", latest.Format("01-02"), c.Overview))
-			break
+		if c.Kind == "rolling" {
+			label := c.LocalDate.Format("01-02")
+			if c.LocalDate.Equal(today) {
+				label = "今天"
+			}
+			pending = append(pending, fmt.Sprintf("[%s] %s：%s%s", label, c.Title, c.Summary, openItems(c.KeyPoints)))
 		}
+	}
+	if !latest.IsZero() {
+		pending = append(pending, fmt.Sprintf("[%s 概况] %s", latest.Format("01-02"), latestOverview))
 	}
 	for _, item := range rankedTopics {
 		c := item.candidate
-		if c.LocalDate.Equal(latest) {
+		if c.Kind != "rolling" && c.LocalDate.Equal(latest) {
 			pending = append(pending, fmt.Sprintf("[%s] %s：%s%s", c.LocalDate.Format("01-02"), c.Title, c.Summary, openItems(c.KeyPoints)))
 		}
 	}
 	for _, item := range rankedTopics {
 		c := item.candidate
-		if !c.LocalDate.Equal(latest) && item.score >= scoreTheta {
+		if c.Kind != "rolling" && !c.LocalDate.Equal(latest) && item.score >= scoreTheta {
 			pending = append(pending, fmt.Sprintf("[%s] %s：%s", c.LocalDate.Format("01-02"), c.Title, ShortSummary(c.Summary)))
 		}
 	}

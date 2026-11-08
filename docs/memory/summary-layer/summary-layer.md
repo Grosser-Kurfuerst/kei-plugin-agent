@@ -1035,13 +1035,13 @@ memBlock := p.memoryContext(st, trimmed) // 失败、未启用时返回 ""
 
 *滚动摘要：触发*
 
-- 写事务第 4 步 upsert `mem_conv_day` 时用 `RETURNING` 取回更新后的行。对其中 `local_date = 今天` 的行，若 `msg_count - rolled_msg_count ≥ rollingEvery` 且 `rolling_runs < rollingMaxPerDay`，在同一事务内建任务：`Type = rolling_summary`，去重键 `rolling:<conv>:<YYYY-MM-DD>:<rolling_runs+1>`，`JobPayload` 为 `ConvKey` 与 `Date`。
+- 写事务第 4 步 upsert `mem_conv_day` 时用 `RETURNING` 取回更新后的行。对其中 `local_date = 今天` 的行，若 `msg_count - rolled_msg_count ≥ RollingEvery` 且 `rolling_runs < RollingMaxPerDay`，在同一事务内建任务：`Type = rolling_summary`，去重键 `rolling:<conv>:<YYYY-MM-DD>:<rolling_runs+1>`，`JobPayload` 为 `ConvKey`、`Date` 与固定的 `Run = rolling_runs+1`。
 - 只对今天触发：写入延迟、归属前一天的消息不触发。
 - 去重键中的运行序号要等这次滚动写完才加一，此前反复满足条件只会撞上同一个键，不重复建任务。任务超过重试上限变 `dead` 后当天不再滚动，由短期历史与次日日摘要覆盖，可以接受。
 
 *滚动摘要：处理*（`run = rolling_runs + 1`，按步骤 1 读到的值）
 
-1. **开始前检查**：读 `(conv, D)` 的 `mem_conv_day` 行。`summarized_upto_id` 已有值时直接完成，不调模型。否则记下本次读到的 `msg_count` 为 `N`、`last_msg_id` 为 `upto`。D 不是今天不作为退出条件：D 当天触发、在次日 `memory_daily_at` 前才执行的任务照常写入。
+1. **开始前检查**：任务携带固定 `Run`；`rolling_runs ≥ Run` 时直接完成（摘要已提交、任务状态未落库时的重放不重复推进）。读 `(conv, D)` 的 `mem_conv_day` 行。`summarized_upto_id` 已有值时直接完成，不调模型。否则记下本次读到的 `msg_count` 为 `N`、`last_msg_id` 为 `upto`。D 不是今天不作为退出条件：D 当天触发、在次日 `memory_daily_at` 前才执行的任务照常写入。
 2. **取消息**：D 日未撤回、`id ∈ (rolled_upto_msg_id, upto]` 的消息，按 `(sent_at, id)` 排序。复用 S4 的切片、预过滤、切片小结及其错误处理：网络、超时或 HTTP 错误让任务失败重试，输出修复后仍不合规的切片可跳过。
 3. **合并**：输入本次切片话题 `s1…`、今日已有滚动话题 `t1…`（按 `id` 顺序，含标题与完整摘要）、前 `WindowDays` 天的日摘要话题 `k1…`（与 S4 相同），使用下文的 `RollingMergeSystem`，输出结构与 S4 相同，`continues` 可填 `t` 或 `k` 编号。没有切片话题时不调合并模型，只推进进度；只有一个切片话题且无 `t`、`k` 时，以及合并输出不合规时，与 S4 相同按切片话题兜底，全部作为新话题。
 4. **话题规则**：
@@ -1049,7 +1049,7 @@ memBlock := p.memoryContext(st, trimmed) // 失败、未启用时返回 ""
    - `continues` 指向 `k`：跨天延续，与 S4 相同沿用该 `k` 的 `topic_key`。合并前把全部已有滚动话题的 `topic_key` 放进已延续集合（[`merge.go`](../../../internal/memory/summary/merge.go#L50) 的 `continued`），已被今日滚动话题延续过的 `k` 不再被延续，该指向按新话题处理。
    - 其他为新话题，键为 `topic:<conv_key>:<YYYYMMDD>:r<run>.<n>`，`n` 为本次新话题序号（从 1 起），与日摘要的 `topic:<conv_key>:<YYYYMMDD>:<n>` 不冲突。
    - 写入前对标题、摘要、`overview` 做与 S4 相同的敏感信息替换。
-5. **写入**（一个事务）：锁住 `(conv, D)` 的 `mem_conv_day` 行 → 再检查 `summarized_upto_id`，已有值则不写入、任务按完成处理 → 删除已有 `(conv, D, rolling)` 摘要（话题级联）→ 插入新摘要（`version + 1`），话题为未更新的旧话题（原样复制）、被更新的话题与新话题；`from_msg_id` 沿用旧摘要（无旧摘要时取本次第一条），`to_msg_id = upto`，`msg_count = N`；旧话题与新话题都没有时不建摘要 → 设置 `rolled_upto_msg_id = upto`、`rolled_msg_count = N`、`rolling_runs = run`。
+5. **写入**（一个事务）：锁住 `(conv, D)` 的 `mem_conv_day` 行 → 再检查 `summarized_upto_id` 与 `rolling_runs`，已有日摘要或本轮已完成则不写入、任务按完成处理 → 删除已有 `(conv, D, rolling)` 摘要（话题级联）→ 插入新摘要（`version + 1`），话题为未更新的旧话题（原样复制）、被更新的话题与新话题；`from_msg_id` 沿用旧摘要（无旧摘要时取本次第一条），`to_msg_id = upto`，`msg_count = N`；旧话题与新话题都没有时不建摘要 → 设置 `rolled_upto_msg_id = upto`、`rolled_msg_count = N`、`rolling_runs = run`。
 6. `JobResult` 复用 S4 的字段，成功时 `days = 1`。
 
 *滚动摘要：生命周期*
@@ -1162,7 +1162,7 @@ var ErrInvalidDateRange = errors.New("memory: 日期范围非法")
 | --- | --- |
 | `personas.<名>.tools` 含 `memory__` 名称 | 不是内置记忆工具名：`不是合法记忆工具名`；记忆或记忆工具未启用：`未启用记忆工具` |
 
-*常量*：`rollingEvery = 200`，`rollingMaxPerDay = 6`。
+*常量*：`RollingEvery = 200`，`RollingMaxPerDay = 6`。
 
 **验收**
 

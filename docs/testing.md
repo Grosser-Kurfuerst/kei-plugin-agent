@@ -64,6 +64,7 @@ PERSONA_MEMORY_CONTEXT_HOST_BINARY=/tmp/persona-memory-devhost go test ./interna
 | 用例 | 断言 |
 | --- | --- |
 | S4 LLM 客户端 | 凭据及 JSON 模式、宿主超时隔离、网络退避、结构修复与 token 统计 |
+| S6 滚动摘要 | 200 条触发与每日次数上限、增量合并与固定运行序号重放、日摘要并发替换、滚动候选与短期历史去重；`TestRuntimeRollingLifecycle` 以真实 Service / PostgreSQL、HTTP 桩与可控时钟覆盖凌晨归属至日摘要替换 |
 | S5 读取与注入 | 最近三天日摘要、可信会话隔离、关键词及时间打分、话题去重、行预算、提示词位置、随机轮次读取、错误及超时降级 |
 | S4 日摘要 | 切片与预过滤、来源及归属校验、确定性合并、跨天延续、失败日期重试、幂等覆盖与空结果清理 |
 | 无发送者 | 决策结果 `reason=no_sender` |

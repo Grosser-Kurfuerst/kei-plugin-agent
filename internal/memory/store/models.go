@@ -87,6 +87,7 @@ func (Job) TableName() string { return "mem_job" }
 
 // JobPayload 是任务参数。
 type JobPayload struct {
+	Run     int    `json:"run,omitempty"` // rolling_summary 对应的固定运行序号
 	ConvKey string `json:"conv_key,omitempty"`
 	Date    string `json:"date,omitempty"`
 }

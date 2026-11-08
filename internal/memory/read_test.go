@@ -23,8 +23,8 @@ func TestContextScopeWindowAndLifecycle(t *testing.T) {
 		days              int
 	}{
 		{"group:qq:g1", "昨日", "daily", 1}, {"group:qq:g1", "大前天", "daily", 3},
-		{"group:qq:g1", "超出窗口", "daily", 4}, {"group:qq:g1", "今天", "daily", 0},
-		{"group:qq:g1", "滚动", "rolling", 1}, {"group:qq:g2", "其他群", "daily", 1},
+		{"group:qq:g1", "超出窗口", "daily", 4},
+		{"group:qq:g1", "滚动", "rolling", 1}, {"group:qq:g1", "当日滚动", "rolling", 0}, {"group:qq:g1", "前日滚动", "rolling", 2}, {"group:qq:g2", "其他群", "daily", 1},
 		{"private:qq:b1:u1", "私聊", "daily", 1}, {"private:qq:b2:u1", "其他机器人私聊", "daily", 1},
 	} {
 		date := today.AddDate(0, 0, -spec.days)
@@ -42,12 +42,12 @@ func TestContextScopeWindowAndLifecycle(t *testing.T) {
 		t.Fatal(result)
 	}
 	joined := strings.Join(result.Blocks[0].Lines, " ")
-	for _, word := range []string{"昨日", "大前天", "待办：确认安排"} {
+	for _, word := range []string{"昨日", "大前天", "待办：确认安排", "[今天] 当日滚动", "前日滚动"} {
 		if !strings.Contains(joined, word) {
 			t.Fatalf("漏掉 %s: %s", word, joined)
 		}
 	}
-	for _, word := range []string{"超出窗口", "今天", "滚动", "其他群", "私聊"} {
+	for _, word := range []string{"超出窗口", "[11-07] 滚动", "其他群", "私聊"} {
 		if strings.Contains(joined, word) {
 			t.Fatalf("越界 %s: %s", word, joined)
 		}

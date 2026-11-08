@@ -11,7 +11,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/RandomLemon/kei-plugin-persona/internal/memory/jobs"
 	"github.com/RandomLemon/kei-plugin-persona/internal/memory/store"
+	"github.com/RandomLemon/kei-plugin-persona/internal/memory/summary"
 )
 
 // ingestBatch 是已校验、规范化，待在一个事务内写入的一批记录。
@@ -263,8 +265,17 @@ func (s *Service) writeBatch(ctx context.Context, db *gorm.DB, b ingestBatch) er
 		slices.SortFunc(rows, func(x, y store.ConvDay) int {
 			return cmp.Or(cmp.Compare(x.ConvKey, y.ConvKey), x.LocalDate.Compare(y.LocalDate))
 		})
-		if err := tx.Clauses(upsertConvDay()).Create(&rows).Error; err != nil {
+		if err := tx.Clauses(upsertConvDay(), clause.Returning{}).Create(&rows).Error; err != nil {
 			return fmt.Errorf("upsert conv day: %w", err)
+		}
+		today := store.LocalDate(s.now(), s.cfg.Location, s.dayStart)
+		for _, day := range rows {
+			if day.LocalDate.Equal(today) && day.MsgCount-day.RolledMsgCount >= summary.RollingEvery && day.RollingRuns < summary.RollingMaxPerDay {
+				job := store.Job{Type: "rolling_summary", DedupeKey: fmt.Sprintf("rolling:%s:%s:%d", day.ConvKey, day.LocalDate.Format("2006-01-02"), day.RollingRuns+1), Payload: store.JobPayload{Run: day.RollingRuns + 1, ConvKey: day.ConvKey, Date: day.LocalDate.Format("2006-01-02")}, Status: "pending", RunAfter: s.now()}
+				if err := (jobs.Queue{DB: tx}).Create(ctx, job); err != nil {
+					return err
+				}
+			}
 		}
 		return nil
 	})

@@ -308,8 +308,8 @@ kei-plugin-persona/
 │   ├── convkey.go   conv_key 与去重键推导
 │   ├── memory.go    Config、Service、Start/Stop/Stats、连库与迁移状态机
 │   ├── cleanup.go   过期清理、任务调度与 worker 生命周期
-│   ├── read.go     Context：按可信会话读取日摘要并组装近期重点
-│   ├── summary/     切片、预过滤、提示词、来源校验、话题合并与日摘要流水线
+│   ├── read.go     Context：按可信会话读取日 / 滚动摘要并组装近期重点
+│   ├── summary/     切片、预过滤、提示词、来源校验、话题合并与日 / 滚动摘要流水线
 │   ├── llm/         后台 JSON 客户端，复用宿主 Transport
 │   ├── jobs/        持久化队列、调度与 worker 池
 │   ├── ingest.go    Enqueue、写协程、批量事务写入与停止前 flush
@@ -342,7 +342,7 @@ kei-plugin-persona/
 | `policy.go` | 插件级名单策略：`policyState`/`policyValue`、四值模式放行判定、`policy` 键读写、`/agent policy|list` 报告渲染。 |
 | `memory.go` | `memoryBackend` 接口（`*memory.Service` 实现，测试注入 `fakeMemory`）；`memoryRecordFromEvent` / `memoryRecordFromReply` 构造入站消息与自身回复的记忆记录；`memoryContext` 限时读取当前会话记忆，`renderMemoryBlock` 渲染记忆块，见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4。 |
 | `internal/memory/memory.go` | 记忆子系统入口 `Service`：后台连库（Ping 指数退避）→ 迁移 → 写循环，`Stop` 关闭准入并在上界内写完队列，见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.3。 |
-| `internal/memory/read.go` | `Context` 按可信会话与日期窗口读取日摘要，交给话题打分和预算选取；未就绪返回 `ErrNotReady`。 |
+| `internal/memory/read.go` | `Context` 按可信会话与日期窗口读取日 / 滚动摘要，交给话题打分和预算选取；未就绪返回 `ErrNotReady`。 |
 | `internal/memory/summary/scoring.go` | 关键词 bigram 相关度、话题打分与去重、概况及摘要行渲染和正文预算。 |
 | `internal/memory/ingest.go` | 非阻塞 `Enqueue`、攒批、每批一个事务（会话 upsert、消息按去重键插入、每日计数累加）、失败重试与停止前 flush。 |
 | `internal/memory/convkey.go` | `conv_key`（群不含机器人 ID，私聊含）与去重键（`m:<MsgID>` / `e:<EventID>`）推导与合法性校验。 |

@@ -22,7 +22,7 @@ func (s *Service) Context(ctx context.Context, req ContextRequest) (ContextResul
 	}
 	today := store.LocalDate(s.now(), s.cfg.Location, s.dayStart)
 	var candidates []summary.Candidate
-	err := db.WithContext(ctx).Table("mem_topic AS t").Select("t.*, s.overview").Joins("JOIN mem_summary AS s ON s.id = t.summary_id").Where("t.conv_key = ? AND s.conv_key = ? AND t.local_date >= ? AND t.local_date < ? AND s.kind = 'daily'", key, key, today.AddDate(0, 0, -summary.WindowDays), today).Order("t.local_date DESC, t.id").Scan(&candidates).Error
+	err := db.WithContext(ctx).Table("mem_topic AS t").Select("t.*, s.overview, s.kind").Joins("JOIN mem_summary AS s ON s.id = t.summary_id").Where("t.conv_key = ? AND s.conv_key = ? AND t.local_date >= ? AND t.local_date <= ? AND ((s.kind = 'daily' AND t.local_date < ?) OR (s.kind = 'rolling' AND NOT EXISTS (SELECT 1 FROM mem_summary d WHERE d.conv_key=s.conv_key AND d.local_date=s.local_date AND d.kind='daily')))", key, key, today.AddDate(0, 0, -summary.WindowDays), today, today).Order("t.local_date DESC, t.id").Scan(&candidates).Error
 	if err != nil {
 		s.mu.RLock()
 		stopped := s.stopped
@@ -32,7 +32,7 @@ func (s *Service) Context(ctx context.Context, req ContextRequest) (ContextResul
 		}
 		return ContextResult{}, err
 	}
-	lines := summary.SelectLines(candidates, req.Queries, today, req.BudgetChars)
+	lines := summary.SelectLines(candidates, req.Queries, today, req.BudgetChars, req.HistorySince)
 	if len(lines) == 0 {
 		return ContextResult{}, nil
 	}
