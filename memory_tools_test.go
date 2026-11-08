@@ -49,10 +49,20 @@ func TestMemorySummaryDefinitionAndResults(t *testing.T) {
 			}
 		})
 	}
-	for _, args := range []string{"", `null`, `[]`, `{"date_from":1}`, `{} garbage`} {
+	for _, args := range []string{`null`, `[]`, `{"date_from":1}`, `{} garbage`} {
 		got := tool.Call(t.Context(), args)
 		if got.Detail != "bad_args" {
 			t.Fatal(args, got)
+		}
+	}
+	for _, args := range []string{"", "  "} {
+		var got memory.SummaryQuery
+		mem := &fakeMemory{queryFn: func(_ context.Context, req memory.SummaryQuery) ([]memory.SummaryItem, error) {
+			got = req
+			return nil, nil
+		}}
+		if r := (memorySummaryTool{backend: mem, scene: scene}).Call(t.Context(), args); r.Detail != "no_result" || got.Scene != scene || got.DateFrom != "" || got.Query != "" {
+			t.Fatalf("空参数 %q: %+v %+v", args, r, got)
 		}
 	}
 }

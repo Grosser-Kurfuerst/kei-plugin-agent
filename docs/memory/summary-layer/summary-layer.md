@@ -1045,7 +1045,7 @@ memBlock := p.memoryContext(st, trimmed) // 失败、未启用时返回 ""
 2. **取消息**：D 日未撤回、`id ∈ (rolled_upto_msg_id, upto]` 的消息，按 `(sent_at, id)` 排序。复用 S4 的切片、预过滤、切片小结及其错误处理：网络、超时或 HTTP 错误让任务失败重试，输出修复后仍不合规的切片可跳过。
 3. **合并**：输入本次切片话题 `s1…`、今日已有滚动话题 `t1…`（按 `id` 顺序，含标题与完整摘要）、前 `WindowDays` 天的日摘要话题 `k1…`（与 S4 相同），使用下文的 `RollingMergeSystem`，输出结构与 S4 相同，`continues` 可填 `t` 或 `k` 编号。没有切片话题时不调合并模型，只推进进度；只有一个切片话题且无 `t`、`k` 时，以及合并输出不合规时，与 S4 相同按切片话题兜底，全部作为新话题。
 4. **话题规则**：
-   - `continues` 指向 `t`：更新该滚动话题。保留其 `topic_key`、`continues_from`、`first_msg_id`、`first_at`；参与者、实体、要点为旧的加新的（旧的在前，要点按 `type`、`text`、`speaker` 去重）；标题、摘要、重要性取本次输出，截断与空值兜底同 S4；`last_msg_id`、`last_at` 取新值，`has_open` 重算。同一个 `t` 本次最多被更新一次，重复的指向按新话题处理。
+   - `continues` 指向 `t`：更新该滚动话题。保留其 `topic_key`、`continues_from`、`first_msg_id`、`first_at`；参与者、实体、要点为旧的加新的（旧的在前，要点按 `type`、`text`、`speaker` 去重）；标题、摘要、重要性取本次输出，截断同 S4；输出的标题或摘要为空时沿用该旧话题的（旧话题覆盖今天更早的进展，比本次切片更完整），重要性为空时同 S4；`last_msg_id`、`last_at` 取新值，`has_open` 重算。同一个 `t` 本次最多被更新一次，重复的指向按新话题处理。
    - `continues` 指向 `k`：跨天延续，与 S4 相同沿用该 `k` 的 `topic_key`。合并前把全部已有滚动话题的 `topic_key` 放进已延续集合（[`merge.go`](../../../internal/memory/summary/merge.go#L50) 的 `continued`），已被今日滚动话题延续过的 `k` 不再被延续，该指向按新话题处理。
    - 其他为新话题，键为 `topic:<conv_key>:<YYYYMMDD>:r<run>.<n>`，`n` 为本次新话题序号（从 1 起），与日摘要的 `topic:<conv_key>:<YYYYMMDD>:<n>` 不冲突。
    - 写入前对标题、摘要、`overview` 做与 S4 相同的敏感信息替换。
@@ -1142,7 +1142,7 @@ var ErrInvalidDateRange = errors.New("memory: 日期范围非法")
 | --- | --- | --- | --- |
 | 有结果 | 摘要行 | `ok` | — |
 | 无结果 | `没有找到相关的聊天摘要。` | `ok` | `no_result` |
-| 参数无法解析或 `ErrInvalidDateRange` | `日期格式应为 YYYY-MM-DD，且跨度不超过 31 天。` | `error` | `bad_args` |
+| 参数无法解析（空串按 `{}` 处理）或 `ErrInvalidDateRange` | `日期格式应为 YYYY-MM-DD，且跨度不超过 31 天。` | `error` | `bad_args` |
 | `ErrNotReady` | `记忆暂时不可用。` | `error` | `not_ready` |
 | 其他错误（含超时） | `记忆暂时不可用。` | `error` | `failed` |
 
@@ -1169,11 +1169,11 @@ var ErrInvalidDateRange = errors.New("memory: 日期范围非法")
 | 测试位置 | 必须观察到的结果 |
 | --- | --- |
 | `store/models_test.go` 与各调用方测试 | 日界：03:59 归前一天、04:00 归当天；`dayStart = 0` 时为自然日；调度、日摘要、读取、清理的「今天」随日界移动 |
-| `ingest_test.go` 滚动触发 | 满 200 条才建任务、每天最多 6 次；只对今天触发；上一次滚动写完前重复满足条件不重复建任务 |
-| `summary/pipeline_test.go` 滚动 | 只处理 `(rolled_upto_msg_id, last_msg_id]` 的消息；开始时已有日摘要则不调模型直接完成；模型调用期间日摘要写入后，加锁检查放弃写入；D 不是今天时照常写入；`continues` 指向 `t` 时保留 topic_key 与 `first_*`，参与者与要点为并集，标题与摘要为新输出；已被今日滚动话题延续的 `k` 不再被延续；新键带 `r<run>.` 前缀；进度三列推进；次日日摘要写入后滚动摘要被删除（含当天无话题） |
-| `summary/scoring_test.go` | 无日摘要的日期用滚动话题；`first_at ≥ HistorySince` 的滚动话题被跳过，且跳过先于去重；滚动行排在最前、不受 θ 限制、无概况行；「最近一天」只按日摘要计算、概况行保留；今天的标签为 `今天` |
+| `rolling_test.go` 滚动触发 | 满 200 条才建任务、每天最多 6 次；只对今天触发；上一次滚动写完前重复满足条件不重复建任务 |
+| `summary/rolling_test.go` 滚动 | 只处理 `(rolled_upto_msg_id, last_msg_id]` 的消息；开始时已有日摘要则不调模型直接完成；模型调用期间日摘要写入后，加锁检查放弃写入；D 不是今天时照常写入；`continues` 指向 `t` 时保留 topic_key 与 `first_*`，参与者与要点为并集，标题与摘要为新输出，输出为空时沿用旧话题；已被今日滚动话题延续的 `k` 不再被延续；新键带 `r<run>.` 前缀；进度三列推进；次日日摘要写入后滚动摘要被删除（含当天无话题） |
+| `summary/rolling_test.go` 读取 | 无日摘要的日期用滚动话题；`first_at ≥ HistorySince` 的滚动话题被跳过，且跳过先于去重；滚动行排在最前、不受 θ 限制、无概况行；「最近一天」只按日摘要计算、概况行保留；今天的标签为 `今天` |
 | `read_test.go` 显式查询 | 默认 `[今天-6, 今天]`；只给一端时的补全；三种非法日期返回 `ErrInvalidDateRange`；同一天日摘要优先于滚动；有 query 时按关键词相关度排序且不含零相关话题，全部零相关时退回日期与重要性排序；无 query 时按日期与重要性排序；`Limit` 范围与默认值；跨会话隔离 |
-| 根包 `tools_test.go` | schema 与上文逐字一致；调用携带本会话 `Scene`；五种结果映射；未启用时不在目录中；人格继承与交集正确；`/agent tools` 列出、`reload` 不影响 |
+| 根包 `memory_tools_test.go` | schema 与上文逐字一致；调用携带本会话 `Scene`；五种结果映射，空串参数按 `{}` 查询；未启用时不在目录中；人格继承与交集正确；`/agent tools` 列出、`reload` 不影响 |
 | 根包 `config_test.go` | 两条工具校验文案逐字一致 |
 
 **运行验收**：消息量大的群当天出现 rolling 摘要，次日 `memory_daily_at` 后被日摘要替换；凌晨 0 点至 `memory_daily_at` 之间的消息归入前一天；开启 `memory_tools_enabled` 后问「上周三聊了什么」，工具日志显示调用了 `memory__summary`，回复内容来自对应日期的摘要。

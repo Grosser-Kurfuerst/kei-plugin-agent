@@ -297,6 +297,7 @@ kei-plugin-persona/
 ├── decision_test.go 决策模型单测（过滤/寻址/随机/窗口/epoch/名单/私聊/记忆入队）
 ├── llm_test.go      LLM 客户端单测（httptest.Server）
 ├── tools_test.go    工具调用循环单测（桩 completer + 桩工具）
+├── memory_tools_test.go memory__summary 定义、结果映射、目录与人格过滤
 ├── mcp_test.go      MCP 调用、刷新、并发快照与取消（共用 httptest.Server 桩）
 ├── persona_test.go  人格解析、模板渲染、历史渲染、清洗单测
 ├── policy_test.go   名单策略单测（模式矩阵/命令输出/持久化/启动恢复）

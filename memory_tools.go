@@ -33,6 +33,9 @@ func (t memorySummaryTool) Call(ctx context.Context, args string) toolResult {
 		Query    string `json:"query"`
 	}
 	badArgs := toolResult{Content: "日期格式应为 YYYY-MM-DD，且跨度不超过 31 天。", Status: "error", Detail: "bad_args"}
+	if strings.TrimSpace(args) == "" { // 部分模型对无必填参数的调用传空串
+		args = "{}"
+	}
 	if !strings.HasPrefix(strings.TrimSpace(args), "{") || json.Unmarshal([]byte(args), &input) != nil {
 		return badArgs
 	}

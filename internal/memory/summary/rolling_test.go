@@ -33,6 +33,22 @@ func TestMergeRollingContinuity(t *testing.T) {
 	}
 }
 
+func TestMergeRollingEmptyOutputKeepsOldText(t *testing.T) {
+	date := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
+	old := store.Topic{TopicKey: "stable", Title: "聚餐", Summary: "上午定了地点，下午定了预算"}
+	source := []store.Topic{{Title: "预算", Summary: "下午定了预算", Importance: 0.8}}
+	output := MergeOutput{Topics: []MergedTopic{{From: []string{"s1"}, Continues: "t1"}, {From: []string{"s1"}}}}
+	got, _ := MergeRolling(output, source, nil, []store.Topic{old}, "c", date, 2, false)
+	if len(got) != 1 || got[0].TopicKey != "stable" || got[0].Title != old.Title || got[0].Summary != old.Summary {
+		t.Fatalf("%+v", got)
+	}
+	// 新话题仍按 S4 用切片兜底。
+	got, _ = MergeRolling(MergeOutput{Topics: []MergedTopic{{From: []string{"s1"}}}}, source, nil, []store.Topic{old}, "c", date, 2, false)
+	if len(got) != 2 || got[0].Title != "预算" || got[0].Summary != "下午定了预算" {
+		t.Fatalf("%+v", got)
+	}
+}
+
 func TestPipelineRollingIncrementalAndDailyReplacement(t *testing.T) {
 	var calls atomic.Int64
 	pipeline, db := testPipeline(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -114,8 +114,8 @@
 | 2026-11-08 | S5 | `windowDays` 导出为 `WindowDays`，让日摘要延续与读取共用三日窗口；`memoryContext` 不保留本阶段不使用的轮次参数，随机与寻址均走同一路径 | 已同步到设计文档 §16.3.6–16.3.7 与全部调用点 |
 | 2026-11-08 | S1–S6 | 开发前评审决定：摘要日以 `memory_daily_at` 为日界（默认当天 04:00 至次日 04:00 算同一天，`00:00` 即自然日），由 `store.LocalDate(t, loc, dayStart)` 统一换算，作为 S6 第一步单独实现；已入库数据不迁移 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.2.3、§16.3.3、§16.3.5、§16.3.7、§16.3.8；`configuration.md`、`overview.md` 随实现同步 |
 | 2026-11-08 | S6 | 开发前评审补定：滚动任务开始前与写入加锁后两次检查 `summarized_upto_id`，已有值即退出，D 不是今天不作为退出条件；更新今日滚动话题时保留 topic_key 与 `first_*`、参与者与要点取并集、标题摘要用新输出，已被今日滚动话题延续的 `k` 不再延续；新增 `RollingMergeSystem` 全文，日摘要提示词不变；新键序号为 `rolling_runs+1`，进度按开始时读到的 `msg_count` / `last_msg_id` 推进；读取侧滚动行排最前、不受 θ、无概况，「最近一天」只按日摘要计算，先按 `HistorySince` 跳过再去重；显式查询的单端日期补全、同日日摘要优先、零相关时退回日期排序，工具描述补充「按日期问时不要填 query」；触发测试移到 `ingest_test.go`，「写事务第 5 步」改为「第 4 步之后」 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.8 |
-
 | 2026-11-08 | S6 | 评审补充：滚动任务持久化固定 `JobPayload.Run`，开始及写入加锁后跳过已完成运行，避免摘要已提交但任务状态未保存时重放重复推进；最近日摘要概况独立于话题去重保留；`RollingEvery` / `RollingMaxPerDay`、`KeywordRelevance` / `OpenItems` 导出供写入和查询共用 | 设计与全部调用点同步，均有回归验证 |
+| 2026-11-08 | S6 | 完成后评审修正：延续今日滚动话题时，合并输出的标题或摘要为空则沿用旧话题而非本次切片；`memory__summary` 参数为空串时按 `{}` 处理；验收表测试位置改为实际文件（`rolling_test.go`、`summary/rolling_test.go`、根包 `memory_tools_test.go`），偏差表去掉断行空行 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.8 与 [`architecture.md`](../../architecture.md) 第 5 章，均有回归测试 |
 
 ## 迭代验证记录
 

@@ -103,13 +103,8 @@ func merge(output MergeOutput, source, known, today []store.Topic, conv string, 
 				}
 			}
 			topic.Title = truncate(Redact(candidate.Title), 20)
-			if topic.Title == "" {
-				topic.Title = best.Title
-			}
 			topic.Summary = truncate(Redact(candidate.Summary), 120)
-			if topic.Summary == "" {
-				topic.Summary = best.Summary
-			}
+			fallbackTitle, fallbackSummary := best.Title, best.Summary
 			topic.Importance = best.Importance
 			if candidate.Importance != nil {
 				topic.Importance = importance(*candidate.Importance)
@@ -147,10 +142,18 @@ func merge(output MergeOutput, source, known, today []store.Topic, conv string, 
 					}
 				}
 				topic.Participants, topic.Entities, topic.KeyPoints = old.Participants, old.Entities, old.KeyPoints
+				// 旧话题覆盖今天更早的进展，比本次切片更适合作空值兜底。
+				fallbackTitle, fallbackSummary = old.Title, old.Summary
 			} else if n := index(candidate.Continues, "k", len(known)); n >= 0 && !continued[known[n].TopicKey] {
 				topic.TopicKey = known[n].TopicKey
 				topic.ContinuesFrom = known[n].TopicKey
 				continued[topic.TopicKey] = true
+			}
+			if topic.Title == "" {
+				topic.Title = fallbackTitle
+			}
+			if topic.Summary == "" {
+				topic.Summary = fallbackSummary
 			}
 			topics = append(topics, topic)
 		}
