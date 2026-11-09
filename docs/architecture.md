@@ -305,18 +305,7 @@ kei-plugin-persona/
 ├── plugin_test.go   生命周期单测（阶段 ctx 取消后运行期仍可用、Stop 排空写队列、记忆先于 cancel 停止）
 ├── helpers_test.go  测试桩与测试环境构造
 ├── e2e_test.go      Mock 适配器端到端测试
-├── internal/memory/ 记忆子系统（根包经 memory.go 接入，见 memory/summary-layer/summary-layer.md §16.3）
-│   ├── types.go     Record / Conv / Sender / Stats 与状态常量
-│   ├── convkey.go   conv_key 与去重键推导
-│   ├── memory.go    Config、Service、Start/Stop/Stats、连库与迁移状态机
-│   ├── cleanup.go   过期清理、任务调度与 worker 生命周期
-│   ├── read.go     Context / QuerySummaries：按可信会话读取日 / 滚动摘要
-│   ├── summary/     切片、预过滤、提示词、来源校验、话题合并与日 / 滚动摘要流水线
-│   ├── llm/         后台 JSON 客户端，复用宿主 Transport
-│   ├── jobs/        持久化队列、调度与 worker 池
-│   ├── ingest.go    Enqueue、写协程、批量事务写入与停止前 flush
-│   ├── store/       GORM 模型（mem_conversation / mem_message / mem_conv_day / mem_job / mem_summary / mem_topic）、LocalDate、迁移、gorm 日志适配
-│   └── memtest/     测试用：按测试建独立 schema（NewDB）
+├── internal/memory/ 记忆子系统（根包经 memory.go 接入；包内文件见 memory/summary-layer/summary-layer.md §16.2.1）
 ├── cmd/devhost/     本地联调宿主（独立 Go 模块，不属于插件本体，见 testing.md §11.5）
 │   ├── go.mod       module …/cmd/devhost（replace 本仓库与同级 kei）
 │   ├── go.sum       依赖校验和
@@ -344,13 +333,7 @@ kei-plugin-persona/
 | `policy.go` | 插件级名单策略：`policyState`/`policyValue`、四值模式放行判定、`policy` 键读写、`/agent policy|list` 报告渲染。 |
 | `memory.go` | `memoryBackend` 接口（`*memory.Service` 实现，测试注入 `fakeMemory`）；`memoryRecordFromEvent` / `memoryRecordFromReply` 构造入站消息与自身回复的记忆记录；`memoryContext` 限时读取当前会话记忆，`renderMemoryBlock` 渲染记忆块，见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.4。 |
 | `memory_tools.go` | `memorySummaryTool`：显式摘要查询工具的 schema、可信会话绑定、结果与错误映射；复用现有工具循环。 |
-| `internal/memory/memory.go` | 记忆子系统入口 `Service`：后台连库（Ping 指数退避）→ 迁移 → 写循环，`Stop` 关闭准入并在上界内写完队列，见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.3.3。 |
-| `internal/memory/read.go` | `Context` 按可信会话与日期窗口读取日 / 滚动摘要，交给话题打分和预算选取；`QuerySummaries` 按日期与关键词显式查询当前会话；未就绪返回 `ErrNotReady`。 |
-| `internal/memory/summary/scoring.go` | 关键词 bigram 相关度、话题打分与去重、概况及摘要行渲染和正文预算。 |
-| `internal/memory/ingest.go` | 非阻塞 `Enqueue`、攒批、每批一个事务（会话 upsert、消息按去重键插入、每日计数累加）、失败重试与停止前 flush。 |
-| `internal/memory/convkey.go` | `conv_key`（群不含机器人 ID，私聊含）与去重键（`m:<MsgID>` / `e:<EventID>`）推导与合法性校验。 |
-| `internal/memory/store/` | 模型与表名、`LocalDate` 换算、事务内幂等迁移（AutoMigrate + 索引）、只记出错与慢查询且不输出 SQL 的 gorm 日志适配。 |
-| `internal/memory/memtest/` | `NewDB`：未设置 `PERSONA_MEMORY_TEST_DSN` 时跳过；为每个测试建独立 schema 并在结束时删除。 |
+| `internal/memory/` | 记忆子系统，根包只调用其入口 `Service`（`New`/`Start`/`Stop`/`Stats`、`Enqueue`、`Context`、`QuerySummaries`）；包内文件职责见 [`memory/summary-layer/summary-layer.md`](memory/summary-layer/summary-layer.md) §16.2.1。 |
 | `*_test.go` | 按文件名的领域单测；`e2e_test.go` 走 mock 适配器端到端。 |
 | `cmd/devhost/` | 本地联调宿主：独立 Go 模块，与 kei 的 `cmd/bot` 同构，空导入本插件与所需适配器；连哪个 bot、用哪个数据库由 `config.yaml` 与 `.env` 决定，见 [`testing.md`](testing.md) §11.5。 |
 

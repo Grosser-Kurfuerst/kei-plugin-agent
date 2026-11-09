@@ -21,6 +21,10 @@
 
 M0 剩余工作：事实层、图谱层、治理层的设计文档。摘要层方案已定稿，可以先行实现 M1、M2。
 
+## 部署现状
+
+2026-11-09：bot 按 [`deploy.md`](deploy.md)「开发机联调运行」方式在开发机上运行 `cmd/devhost`，连接 kei-deps 上的 SnowLuma 与 PostgreSQL；「正式部署」（systemd 服务 `kei`、`/opt/kei`）尚未进行。kei-deps 上残留 Docker 卷 `kei-gomod`、`kei-gocache`，正式部署时确认是否保留。切换到正式部署前，先停止开发机上的 devhost（Ctrl+C），避免两个宿主同时连同一个 bot 账号。
+
 ## 规则与契约落地
 
 记忆系统需要改动的全局规则与跨文档契约，在这里记录是否已经写入：

@@ -13,9 +13,9 @@
 | 文件 | 章号 | 内容 |
 | --- | --- | --- |
 | [`overview.md`](overview.md) | 15 | 本文。总体方案：定位与边界、三层分工、技术选型与存储评估（TableStorage / GORM）、实体对齐与调度、整体架构与模块边界、作用域与数据结构、数据流、错误处理、分阶段迭代、已确认决策 |
-| [`progress.md`](progress.md) | — | 记忆系统实现进度：M0–M5 阶段状态、全局规则与契约的落地情况、变更记录 |
+| [`progress.md`](progress.md) | — | 记忆系统实现进度：M0–M5 阶段状态、部署现状、全局规则与契约的落地情况、变更记录 |
 | [`summary-layer/summary-layer.md`](summary-layer/summary-layer.md) | 16 | 摘要层实现：高层设计（模块、数据流、数据模型、门面接口、运行约束，§16.1–16.2）与 S1–S7 分阶段实现计划（每阶段的详细设计、改动与验收，§16.3） |
-| [`summary-layer/progress.md`](summary-layer/progress.md) | — | 摘要层实现进度：S1–S7 阶段状态与完成清单、评测结果摘要、偏差记录 |
+| [`summary-layer/progress.md`](summary-layer/progress.md) | — | 摘要层实现进度：S1–S7 阶段状态与完成清单、S7 后续步骤、评测结果摘要、偏差记录、迭代验证记录 |
 | [`deploy.md`](deploy.md) | — | 部署方案：依赖容器（SnowLuma + PostgreSQL）、开发机联调运行、正式部署（kei-deps 上编译、sqlite 存储、systemd）、注意事项、验收与排障 |
 | 事实层、图谱与画像、治理与运维（M3–M5） | — | 待编写 |
 
@@ -26,7 +26,7 @@
 | 依赖范围（GORM、pgvector-go 只允许 `internal/memory`） | [`../../AGENTS.md`](../../AGENTS.md) §2.2 |
 | 插件功能边界中的记忆部分 | [`../architecture.md`](../architecture.md) 第 1 章 |
 | `Setup` / `Start` / `Stop` 中的记忆步骤、记忆协程 | [`../architecture.md`](../architecture.md) §3.1、§3.2 |
-| 根包 `memory.go` / `memory_tools.go` 与 `internal/memory/` 的文件职责 | [`../architecture.md`](../architecture.md) 第 5 章 |
+| 根包 `memory.go` / `memory_tools.go` 与 `internal/memory/` 入口的文件职责 | [`../architecture.md`](../architecture.md) 第 5 章；包内文件见 [`summary-layer/summary-layer.md`](summary-layer/summary-layer.md) §16.2.1 |
 | `memory_*` 配置键、示例、DSN 环境变量、校验规则 | [`../configuration.md`](../configuration.md) §10.1–10.4 |
 | `/agent memory` 命令与输出行 | [`../persona.md`](../persona.md) §8.4 |
 | 记忆块注入提示词的位置与格式（S5 起） | [`../persona.md`](../persona.md) §8.5 |

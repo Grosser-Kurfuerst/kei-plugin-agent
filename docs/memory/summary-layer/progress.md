@@ -98,6 +98,13 @@
 
 评测框架已实现：`TestEvalExport`、`TestEvalDaily`、`TestEvalSummaryTool` 与问题集已提交；导出已在本地库验证，case 积累、标注、基线与 20-case 达标项待真实数据。
 
+后续步骤（命令与环境变量见 [`../../testing.md`](../../testing.md) §11.1，规则见 [`summary-layer.md`](summary-layer.md) §16.3.9）：
+
+1. 选样与导出：按 §16.3.9 的选样要求挑会话日，用 `TestEvalExport` 从生产库导出到 `bin/eval/cases/`；同一会话共用 `bin/eval/id_map.json`。
+2. 标注：每个 case 先写 `labels.json`，再看模型输出。
+3. 基线：用真实 LLM 跑 A（`TestEvalDaily`）与 B（`TestEvalSummaryTool`，需在上海时间 04:00–23:00 之间开始），须先经用户同意；指标与改动摘要写入 `RESULTS.md`，并更新下方「评测结果摘要」。
+4. 调参：按 §16.3.9 的调优循环每次只改一项，复跑 A / B 并追加记录，直到最新记录在至少 20 个 case 上达标；之后勾选上方清单、把 S7 与 M2 标为已完成。
+
 ## 评测结果摘要
 
 详细记录在 `internal/memory/summary/testdata/eval/RESULTS.md`（S7 创建），这里只登记最新一次的结论。
@@ -140,3 +147,5 @@
 - S7 评测框架（2026-11-09）：导出、A、B 三个功能点分别提交；只新增测试与文档，生产代码不改。导出在本地 PostgreSQL 上验证 ID 映射、正文替换与手机号脱敏，负向验证仓库内未忽略路径与非法 case 名被拒；A 用合成 case + HTTP 桩回放真实 `Pipeline.Daily`，验证逐 case 推进 `Now`、话题匹配、覆盖率、要点报告与 token；B 抽出共享宿主 helper，用本地 fake OpenAI 桩驱动真实 devhost，上海时间 04:01 后运行 25 问全部收到回复、宿主正常退出（63.5s），日志解析出 `memory__summary` 调用及 args，窗口外召回 2/4、日期正确 4/4、query 正确 2/4、误调用 1/10、冗余调用 1/7，与桩行为逐项一致；A、B 指标计算补纯函数单测。gofmt / build / vet / go test / `go test -race ./internal/memory/...` 通过（无评测环境变量时相关用例跳过）。导出 review 2 轮、A review 2 轮，最终均 `NO_BLOCKING_ISSUES`；B 及 A 指标修正的 review 见下一条。真实 LLM、真实 case 与 20-case 基线尚未运行。
 
 - S7 实现评审（2026-11-09）：对导出、A、B 整体评审。修正 A 过粗率分母（改为生成话题数）、分母为 0 输出 N/A、多次运行按分子分母累加；B 冗余调用率按 §16.3.9 改为 `any` 问题发生调用的比例；共享宿主 helper 恢复中断后正常退出检查、固定文本日志格式；问题集改为每天不同话题，话题类数据放在窗口外且在默认查询范围内，消除「上周」「三周前」等歧义标注；上海时间 04:00 前或 23:00 后开始时跳过；A、B 命令放宽 `-timeout`；补 `TestComputeEvalMetrics`、`TestEvalToolMetricsRecord`。Nix devShell 中 gofmt / vet / `go test -race ./...` / lint 0 issues / devhost vet 通过，B 用本地桩冒烟通过（见上一条）。review 3 轮：前两轮 `NEEDS_FIX`（问题集与注入窗口、日界、超时；话题数据超出默认查询范围），第 3 轮 `NO_BLOCKING_ISSUES`；之后把「最近群里有什么新鲜事」改为只问昨天以免冗余率偏高，此项未再复评。真实 LLM 评测未运行。
+
+- S7 生产验收（2026-11-09）：开发机 devhost 连生产库运行，11-09 04:00 的 `daily_summary` 用时约 51s（11 个切片）完成，为前一天 287 条消息的会话日生成日摘要（8 个话题），同会话日的滚动摘要被替换，`summarized_upto_id` 推进到当天最后一条消息；同批 `cleanup` 正常完成。
