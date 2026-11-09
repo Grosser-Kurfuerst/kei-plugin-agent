@@ -63,7 +63,6 @@ func TestEvalSummaryTool(t *testing.T) {
 		"KEI_PLUGINS_PERSONA_MEMORY_TOOLS_ENABLED=true",
 	)
 	host.waitReady(t, 15*time.Second)
-	host.resetSent(t)
 
 	var metrics evalToolMetrics
 	for i, query := range queries {

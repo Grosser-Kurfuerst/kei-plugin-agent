@@ -150,11 +150,12 @@ func (h *runtimeHost) tryInject(userID, message, channel string) error {
 }
 
 // waitReady 轮询 /agent memory status，直到记忆库就绪；避免依赖一次 LLM 往返判断启动完成。
+// 探测发到专用频道，迟到的 status 回复不会被算作测试频道的回复。
 func (h *runtimeHost) waitReady(t *testing.T, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if err := h.tryInject("u1", "/agent memory status", "g1"); err == nil &&
+		if err := h.tryInject("u1", "/agent memory status", "ready"); err == nil &&
 			strings.Contains(h.sentBody(), "数据库=就绪") {
 			return
 		}
@@ -187,23 +188,6 @@ func (h *runtimeHost) trySentRecords() ([]runtimeSentRecord, error) {
 		return nil, err
 	}
 	return records, nil
-}
-
-// resetSent 清空 mock 发送记录，避免就绪探测的消息干扰逐问计数。
-func (h *runtimeHost) resetSent(t *testing.T) {
-	t.Helper()
-	request, err := http.NewRequest(http.MethodDelete, "http://"+h.addr+"/sent", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	response, err := h.sent.Do(request)
-	if err != nil {
-		t.Fatalf("清空发送记录: %v", err)
-	}
-	_ = response.Body.Close()
-	if response.StatusCode != http.StatusNoContent {
-		t.Fatalf("清空发送记录状态 = %d", response.StatusCode)
-	}
 }
 
 // sentBody 返回原始发送记录 JSON，供只做子串断言的验收使用。
