@@ -32,6 +32,7 @@
 | 记忆块注入提示词的位置与格式（S5 起） | [`../persona.md`](../persona.md) §8.5 |
 | 内置记忆工具 `memory__*` 的边界与人格过滤 | [`../mcp.md`](../mcp.md) §13.3、§13.5、§14.3；本章 §15.4.3 |
 | 数据库测试（`PERSONA_MEMORY_TEST_DSN`）、单测矩阵、devhost 联调宿主 | [`../testing.md`](../testing.md) §11.1、§11.2、§11.5（接真实 QQ 与记忆库的部署见本目录 [`deploy.md`](deploy.md)） |
+| S7 评测结果（A / B 的指标与改动摘要） | [`../../internal/memory/summary/testdata/eval/RESULTS.md`](../../internal/memory/summary/testdata/eval/RESULTS.md)（运行方式见 [`../testing.md`](../testing.md) §11.1） |
 | 插件整体交付状态（记忆部分只指向 `progress.md`） | [`../roadmap.md`](../roadmap.md) §12.1 |
 
 **同步规则**：`docs/memory/` 下新增、改名、删除文档，或其他文档中新增、移动、删除记忆相关章节时，同一次变更内同步本节两张表；[`../README.md`](../README.md) §1 不再登记记忆子文档。
