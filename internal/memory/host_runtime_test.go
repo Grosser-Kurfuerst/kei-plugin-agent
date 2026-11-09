@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -29,6 +30,24 @@ type runtimeSentRecord struct {
 			ChannelID string
 		}
 	}
+}
+
+// runtimeLogBuffer 收集宿主输出，供并发读取。
+type runtimeLogBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (b *runtimeLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Write(p)
+}
+
+func (b *runtimeLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.String()
 }
 
 // startRuntimeHostFor 启动 devhost，extra 覆盖默认环境中的同名键；调用方自行轮询就绪。
@@ -210,6 +229,19 @@ func (h *runtimeHost) sentFor(t *testing.T, channel string) []runtimeSentRecord 
 		}
 	}
 	return records
+}
+
+// waitSent 等待频道的发送记录超过 before 条。
+func (h *runtimeHost) waitSent(t *testing.T, channel string, before int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if len(h.sentFor(t, channel)) > before {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("频道 %s 未在 %s 内收到回复：\n%s", channel, timeout, h.logs.String())
 }
 
 func (h *runtimeHost) logsSince(offset int) string {

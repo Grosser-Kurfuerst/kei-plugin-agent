@@ -18,7 +18,7 @@ func TestContextScopeWindowAndLifecycle(t *testing.T) {
 	now := time.Date(2026, 11, 8, 17, 0, 0, 0, time.UTC) // 上海11月9日01:00，未过04:00日界，仍属11月8日摘要日。
 	today := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
 	s := startService(t, cfg, func(s *Service) { s.now = func() time.Time { return now } })
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 	for _, spec := range []struct {
 		conv, title, kind string
 		days              int
@@ -85,7 +85,7 @@ func TestContextScopeWindowAndLifecycle(t *testing.T) {
 func TestContextStopDuringQuery(t *testing.T) {
 	dsn := memtest.NewDB(t)
 	s := startService(t, testConfig(t, dsn), nil)
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 	tx := db.WithContext(t.Context()).Begin()
 	if tx.Error != nil {
 		t.Fatal(tx.Error)
@@ -146,7 +146,7 @@ func TestQuerySummariesScopeRankingAndLimits(t *testing.T) {
 	cfg := testConfig(t, dsn)
 	now := time.Date(2026, 11, 8, 17, 0, 0, 0, time.UTC) // 上海9日01点，仍是8日摘要日
 	s := startService(t, cfg, func(s *Service) { s.now = func() time.Time { return now } })
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 	today := store.LocalDate(now, cfg.Location, s.dayStart)
 	seed := func(conv, kind, title, text string, days int, importance float64) {
 		t.Helper()

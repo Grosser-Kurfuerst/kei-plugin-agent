@@ -1,8 +1,6 @@
 package memory
 
 import (
-	"bytes"
-	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -19,7 +17,7 @@ func TestRuntimeHostSummaryTool(t *testing.T) {
 		t.Skip("未指定 S6 运行验收宿主")
 	}
 	dsn := memtest.NewDB(t)
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 	if err := store.Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +38,6 @@ func TestRuntimeHostSummaryTool(t *testing.T) {
 		"KEI_PLUGINS_PERSONA_DEBUG_PROMPTS=true",
 		"KEI_PLUGINS_PERSONA_GROUP_LIST=[g1]",
 		"KEI_PLUGINS_PERSONA_TRIGGER_KEYWORDS=[bot]",
-		"KEI_PLUGINS_PERSONA_RANDOM_ENABLED=false",
 		"KEI_PLUGINS_PERSONA_RANDOM_TIMEZONE=UTC",
 		"KEI_PLUGINS_PERSONA_MEMORY_DAILY_AT=04:00",
 		"KEI_PLUGINS_PERSONA_MEMORY_TOOLS_ENABLED=true",
@@ -52,26 +49,9 @@ func TestRuntimeHostSummaryTool(t *testing.T) {
 		"KEI_PLUGINS_PERSONA_LLM_MAX_TOKENS=2048",
 		`KEI_PLUGINS_PERSONA_PERSONAS={"default":{"prompt":"用户询问过去聊天内容时，先用 memory__summary 按日期查询，再据工具结果简短回答。"}}`,
 	)
-	inject := func(text string) {
-		data, _ := json.Marshal(map[string]string{"text": text, "user_id": "u1", "channel_id": "g1"})
-		response, err := host.sent.Post("http://"+host.addr+"/inject", "application/json", bytes.NewReader(data))
-		if err == nil {
-			_ = response.Body.Close()
-		}
-	}
-	deadline := time.Now().Add(15 * time.Second)
-	for {
-		inject("/agent memory status")
-		if strings.Contains(host.sentBody(), "数据库=就绪") {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("宿主数据库未就绪")
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	inject("bot 上周三（" + date + "）聊了什么？请按该日期查聊天摘要。")
-	deadline = time.Now().Add(60 * time.Second)
+	host.waitReady(t, 15*time.Second)
+	host.inject(t, "u1", "bot 上周三（"+date+"）聊了什么？请按该日期查聊天摘要。", "g1")
+	deadline := time.Now().Add(60 * time.Second)
 	for !strings.Contains(host.sentBody(), "松果餐厅") || !strings.Contains(host.logs.String(), "tool=memory__summary") || !strings.Contains(host.logs.String(), "status=ok") {
 		if time.Now().After(deadline) {
 			t.Fatal("未观察到成功的 memory__summary 调用及包含合成摘要的回复")

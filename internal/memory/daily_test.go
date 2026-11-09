@@ -17,7 +17,7 @@ func TestScheduledDailySummary(t *testing.T) {
 	}))
 	defer server.Close()
 	dsn := memtest.NewDB(t)
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 	cfg := testConfig(t, dsn)
 	cfg.LLMBaseURL = server.URL
 	cfg.LLMModelSmall = "test"

@@ -6,23 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
-
 	"github.com/RandomLemon/kei-plugin-persona/internal/memory/memtest"
 )
 
 func TestMigrateIdempotent(t *testing.T) {
-	db, err := gorm.Open(postgres.Open(memtest.NewDB(t)), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
+	db := memtest.Open(t, memtest.NewDB(t))
 
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()

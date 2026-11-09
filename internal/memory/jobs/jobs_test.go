@@ -12,23 +12,13 @@ import (
 
 	"github.com/RandomLemon/kei-plugin-persona/internal/memory/memtest"
 	"github.com/RandomLemon/kei-plugin-persona/internal/memory/store"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 func testQueue(t *testing.T) Queue {
 	t.Helper()
-	db, err := gorm.Open(postgres.Open(memtest.NewDB(t)), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
-	if err = store.Migrate(t.Context(), db); err != nil {
+	db := memtest.Open(t, memtest.NewDB(t))
+	if err := store.Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
 	return Queue{DB: db}

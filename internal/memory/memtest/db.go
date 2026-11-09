@@ -65,6 +65,21 @@ func NewDB(t *testing.T) string {
 	return dsn
 }
 
+// Open 打开 dsn 指向的库，测试结束时关闭连接池；常与 NewDB 连用：Open(t, NewDB(t))。
+func Open(t *testing.T, dsn string) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Discard})
+	if err != nil {
+		t.Fatalf("memtest: 连接测试库: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("memtest: 取连接池: %v", err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	return db
+}
+
 // withSearchPath 给 URL 或 key=value 形式的 DSN 加上 search_path。
 func withSearchPath(dsn, schema string) (string, error) {
 	if !strings.HasPrefix(dsn, "postgres://") && !strings.HasPrefix(dsn, "postgresql://") {

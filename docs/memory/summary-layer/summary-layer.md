@@ -199,7 +199,7 @@ export PERSONA_MEMORY_TEST_DSN='postgres://postgres:test@localhost:5432/postgres
 ```
 
 - `PERSONA_MEMORY_TEST_DSN` 只是测试基础设施，不属于运行期配置，不受 [`../../../AGENTS.md`](../../../AGENTS.md) §2.1「配置只经 `PluginContext.Config`」的约束。
-- `internal/memory/memtest` 提供 `NewDB(t *testing.T) (dsn string)`：未设置环境变量时 `t.Skip`；为当前测试建独立 schema，返回的 DSN 带 `search_path=<test_schema>`；`t.Cleanup` 删除 schema。
+- `internal/memory/memtest` 提供 `NewDB(t *testing.T) (dsn string)`：未设置环境变量时 `t.Skip`；为当前测试建独立 schema，返回的 DSN 带 `search_path=<test_schema>`；`t.Cleanup` 删除 schema。`Open(t, dsn) *gorm.DB` 打开连接并在 `t.Cleanup` 关闭，常写作 `Open(t, NewDB(t))`。
 - LLM 一律用 `httptest.Server` 打桩。
 
 **根包测试**：不连数据库。`memory.go` 定义 `memoryBackend` 接口（`*memory.Service` 实现它），方法随阶段增加；[`helpers_test.go`](../../../helpers_test.go) 提供记录调用的 `fakeMemory`。
@@ -231,7 +231,7 @@ type memoryBackend interface {
 | `internal/memory/memory.go` | `Config`、`Service`、`New` / `Start` / `Stop` / `Stats`、连库状态机 |
 | `internal/memory/ingest.go` | `Enqueue`、写协程、批量写入 |
 | `internal/memory/store/models.go`、`migrate.go`、`logger.go` | 3 个模型、`LocalDate` 换算、迁移、gorm 日志适配 |
-| `internal/memory/memtest/db.go` | `NewDB` |
+| `internal/memory/memtest/db.go` | `NewDB`、`Open` |
 
 **设计**
 
@@ -1217,18 +1217,18 @@ S7 是**持续阶段**：评测框架先实现，评测数据随真实采集逐�
 - 每条问题使用独立的群号，各群写入同一份合成摘要，互不共享对话历史，避免前一问的回答影响后一问。合成摘要直接写在测试代码中。
 - 与 S6 运行测试一样用 `bot` 触发词前缀触发回复，问题正文照常写；`random_timezone` 与 `memory_daily_at` 与生产一致（`Asia/Shanghai`、04:00），相对日期按此换算。
 - B 的结果与 A 记在同一个 `RESULTS.md`。
-- 合成摘要既有 `WindowDays` 窗口内的日期，也有窗口外的日期，每个日期一个不同的话题，便于核对日期与召回。按话题问的话题放在窗口外、但在不带日期调用的默认范围（`[今天-6, 今天]`，§16.3.8）内的日期，否则只带 `query` 的调用查不到却仍记为 `query` 正确。逐条发送问题，从该问题之后「persona 工具调用」日志的 `tool` 与 `args` 判断有没有调用、参数对不对。数据全为合成，不读取真实会话。
+- 合成摘要既有 `WindowDays` 窗口内的日期，也有窗口外的日期，每个日期一个不同的话题，便于核对日期与召回。按话题问的话题放在窗口外、但在不带日期调用的默认范围（`[今天-6, 今天]`，§16.3.8）内的日期，否则只带 `query` 的调用查不到却仍记为 `query` 正确。逐条发送问题，收到回复或该频道记录空回复跳过（`reason=empty_reply`）后进入下一条，从该问题之后「persona 工具调用」日志的 `tool` 与 `args` 判断有没有调用、参数对不对。数据全为合成，不读取真实会话。
 - 问题集放在 `internal/memory/testdata/eval/tool_queries.json`，每条包含：
   - `message`：可用 `{date:N}` 占位，渲染为 today+N 的 `YYYY-MM-DD`；
   - `expected`：`call`、`no_call` 或 `any`；
   - `call` 时可选 `query` 关键词；
-  - 日期期望用 `date_from_n` / `date_to_n`（相对 today 的天数）或 `date_from` / `date_to`（`{date:N}` 或 `YYYY-MM-DD`）给出；`out_date_n` 非零表示窗口外问题。
+  - 日期期望用 `date_from_n` / `date_to_n`（相对 today 的天数，成对给出）；给出即表示窗口外问题。
 - 四类问题，共 20–30 条：
   - 窗口内（今天、昨天聊了什么）：`any`，注入已有，记冗余调用率；
   - 窗口外或指定日期：`call`，要求日期正确；
   - 按话题问：只问窗口外日期的话题（窗口内的已注入，问了也不必调用），`call`，要求 `query` 正确；
   - 与历史无关：`no_call`。
-- 指标：窗口外召回率（`out_date_n` 非零的问题中，至少一次调用的期望日期全部匹配）、日期参数正确率（按每次调用的期望 `date_from` / `date_to` 字段计）、`query` 正确率、误调用率（`no_call` 问题发生调用）、冗余调用率（`any` 问题发生调用）。只记录、看趋势，不设门槛。
+- 指标：窗口外召回率（给出 `date_from_n` / `date_to_n` 的问题中，至少一次调用的期望日期全部匹配）、日期参数正确率（按每次调用的期望 `date_from` / `date_to` 字段计）、`query` 正确率、误调用率（`no_call` 问题发生调用）、冗余调用率（`any` 问题发生调用）。只记录、看趋势，不设门槛。
 
 **调优循环**
 

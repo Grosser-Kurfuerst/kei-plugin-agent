@@ -16,23 +16,13 @@ import (
 	"github.com/RandomLemon/kei-plugin-persona/internal/memory/llm"
 	"github.com/RandomLemon/kei-plugin-persona/internal/memory/memtest"
 	"github.com/RandomLemon/kei-plugin-persona/internal/memory/store"
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 func testPipeline(t *testing.T, handler http.Handler) (Pipeline, *gorm.DB) {
 	t.Helper()
-	db, err := gorm.Open(postgres.Open(memtest.NewDB(t)), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
-	if err = store.Migrate(t.Context(), db); err != nil {
+	db := memtest.Open(t, memtest.NewDB(t))
+	if err := store.Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(handler)
@@ -41,7 +31,7 @@ func testPipeline(t *testing.T, handler http.Handler) (Pipeline, *gorm.DB) {
 	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 	pipeline := Pipeline{DB: db, Small: "small", Large: "large", Location: time.UTC, Now: func() time.Time { return now }, Log: log, Client: llm.New(llm.Config{BaseURL: server.URL, Timeout: time.Second, JSONMode: true}, server.Client(), log)}
 	conv := store.Conversation{ConvKey: "c", Type: "group", Name: "测试群"}
-	if err = db.WithContext(t.Context()).Create(&conv).Error; err != nil {
+	if err := db.WithContext(t.Context()).Create(&conv).Error; err != nil {
 		t.Fatal(err)
 	}
 	return pipeline, db

@@ -41,7 +41,7 @@ func TestEvalSummaryTool(t *testing.T) {
 	}
 	today := store.LocalDate(time.Now(), location, evalToolDayStart)
 	queries := readEvalToolQueries(t, filepath.Join("testdata", "eval", "tool_queries.json"), today)
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 	if err = store.Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestEvalSummaryTool(t *testing.T) {
 	host := startRuntimeHostFor(t, binary, dsn, time.Duration(len(queries))*90*time.Second+2*time.Minute,
 		"KEI_LOG_LEVEL=debug",
 		"KEI_PLUGINS_PERSONA_DEBUG_PROMPTS=true",
-		"KEI_PLUGINS_PERSONA_GROUP_LIST="+evalGroupList(groups),
+		"KEI_PLUGINS_PERSONA_GROUP_LIST=["+strings.Join(groups, ",")+"]",
 		"KEI_PLUGINS_PERSONA_TRIGGER_KEYWORDS=[bot]",
 		"KEI_PLUGINS_PERSONA_MENTION_MIN_INTERVAL=0s",
 		"KEI_PLUGINS_PERSONA_REPLY_DEDUPE=false",
@@ -71,7 +71,7 @@ func TestEvalSummaryTool(t *testing.T) {
 		offset := len(host.logs.String())
 		before := len(host.sentFor(t, channel))
 		host.inject(t, "u1", "bot "+renderEvalDate(t, query.Message, today), channel)
-		waitEvalReply(t, host, channel, before, 90*time.Second)
+		waitEvalReply(t, host, channel, before, offset, 90*time.Second)
 		calls := parseEvalToolCalls(host.logsSince(offset))
 		t.Logf("问题：%s 调用：%+v", query.Message, calls)
 		metrics.record(query, calls)
@@ -95,12 +95,11 @@ func TestEvalSummaryTool(t *testing.T) {
 type evalToolQuery struct {
 	Message   string `json:"message"`
 	Expected  string `json:"expected"`
-	DateFrom  string `json:"date_from"`
-	DateTo    string `json:"date_to"`
 	Query     string `json:"query"`
-	OutDateN  int    `json:"out_date_n"`
-	DateFromN int    `json:"date_from_n"`
+	DateFromN int    `json:"date_from_n"` // 相对今天的天数，给出即为窗口外按日期问的问题
 	DateToN   int    `json:"date_to_n"`
+	DateFrom  string `json:"-"` // 由 DateFromN 按当天算出
+	DateTo    string `json:"-"`
 }
 
 type evalToolArgs struct {
@@ -130,7 +129,6 @@ type evalToolMetrics struct {
 var (
 	evalToolLineRE        = regexp.MustCompile(`(?i)"persona 工具调用".*tool=memory__summary`)
 	evalToolArgsRE        = regexp.MustCompile(`\bargs=(?:"((?:\\.|[^"\\])*)"|(\S+))`)
-	evalDateRE            = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 	evalDatePlaceholderRE = regexp.MustCompile(`\{date:(-?\d+)\}`)
 )
 
@@ -168,27 +166,12 @@ func readEvalToolQueries(t *testing.T, path string, today time.Time) []evalToolQ
 		default:
 			t.Fatalf("%s: expected=%q 非法", field, query.Expected)
 		}
-		resolve := func(value string, n int) string {
-			if value != "" {
-				return renderEvalDate(t, value, today)
-			}
-			if n != 0 {
-				return today.AddDate(0, 0, n).Format("2006-01-02")
-			}
-			return ""
+		if (query.DateFromN == 0) != (query.DateToN == 0) {
+			t.Fatalf("%s: date_from_n/date_to_n 必须成对给出", field)
 		}
-		query.DateFrom = resolve(query.DateFrom, query.DateFromN)
-		query.DateTo = resolve(query.DateTo, query.DateToN)
-		if (query.DateFrom == "") != (query.DateTo == "") {
-			t.Fatalf("%s: from/to 的日期必须成对给出", field)
-		}
-		for _, date := range []string{query.DateFrom, query.DateTo} {
-			if date != "" && !evalDateRE.MatchString(date) {
-				t.Fatalf("%s: 日期 %q 不是 YYYY-MM-DD", field, date)
-			}
-		}
-		if query.OutDateN != 0 && (query.DateFrom == "" || query.DateTo == "") {
-			t.Fatalf("%s: 窗口外问题必须给出 from/to 的日期", field)
+		if query.DateFromN != 0 {
+			query.DateFrom = today.AddDate(0, 0, query.DateFromN).Format("2006-01-02")
+			query.DateTo = today.AddDate(0, 0, query.DateToN).Format("2006-01-02")
 		}
 		if query.Query != "" && query.Expected != "call" {
 			t.Fatalf("%s: 带 query 的问题必须期望调用", field)
@@ -196,19 +179,6 @@ func readEvalToolQueries(t *testing.T, path string, today time.Time) []evalToolQ
 		queries[i] = query
 	}
 	return queries
-}
-
-func evalGroupList(groups []string) string {
-	var builder strings.Builder
-	builder.WriteString("[")
-	for i, group := range groups {
-		if i > 0 {
-			builder.WriteString(",")
-		}
-		builder.WriteString(group)
-	}
-	builder.WriteString("]")
-	return builder.String()
 }
 
 // evalToolTopics 是合成摘要，每天一个不同话题，便于核对日期：-1 天在 WindowDays 窗口内会被自动注入；
@@ -254,11 +224,13 @@ func seedEvalToolSummaries(t *testing.T, db *gorm.DB, today time.Time, groups []
 	}
 }
 
-func waitEvalReply(t *testing.T, host *runtimeHost, channel string, before int, timeout time.Duration) {
+// waitEvalReply 等到该频道发出回复，或模型返回空回复被跳过（不该调用工具的问题可能如此）。
+func waitEvalReply(t *testing.T, host *runtimeHost, channel string, before, offset int, timeout time.Duration) {
 	t.Helper()
+	skipped := "reason=empty_reply channel=mock:mock-main:" + channel + " "
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if len(host.sentFor(t, channel)) > before {
+		if len(host.sentFor(t, channel)) > before || strings.Contains(host.logsSince(offset), skipped) {
 			return
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -321,29 +293,18 @@ func (m *evalToolMetrics) record(query evalToolQuery, calls []evalToolCall) {
 	outsideOK := false
 	dateExpected, dateOK := 0, 0
 	for _, call := range calls {
-		callDatesOK := true
-		callDates := 0
-		for _, field := range []struct {
-			n        int
-			value    string
-			expected string
-		}{
-			{query.DateFromN, call.Args.DateFrom, query.DateFrom},
-			{query.DateToN, call.Args.DateTo, query.DateTo},
-		} {
-			if field.n == 0 && field.expected == "" {
-				continue
+		if query.DateFrom != "" {
+			ok := 0
+			for _, match := range []bool{call.Args.DateFrom == query.DateFrom, call.Args.DateTo == query.DateTo} {
+				dateExpected++
+				if match {
+					ok++
+				}
 			}
-			callDates++
-			dateExpected++
-			if field.value == field.expected {
-				dateOK++
-			} else {
-				callDatesOK = false
+			dateOK += ok
+			if ok == 2 {
+				outsideOK = true
 			}
-		}
-		if callDates > 0 && callDatesOK {
-			outsideOK = true
 		}
 		if query.Query != "" && strings.Contains(strings.ToLower(call.Args.Query), strings.ToLower(query.Query)) {
 			queryOK = true
@@ -358,7 +319,7 @@ func (m *evalToolMetrics) record(query evalToolQuery, calls []evalToolCall) {
 			m.Redundant++
 		}
 	}
-	if query.OutDateN != 0 {
+	if query.DateFrom != "" {
 		m.OutsideExpected++
 		if outsideOK {
 			m.OutsideHit++
@@ -380,7 +341,7 @@ func (m *evalToolMetrics) record(query evalToolQuery, calls []evalToolCall) {
 
 func TestEvalToolMetricsRecord(t *testing.T) {
 	var m evalToolMetrics
-	outside := evalToolQuery{Expected: "call", OutDateN: -10, DateFrom: "2026-10-30", DateTo: "2026-10-30"}
+	outside := evalToolQuery{Expected: "call", DateFrom: "2026-10-30", DateTo: "2026-10-30"}
 	m.record(outside, []evalToolCall{
 		{Args: evalToolArgs{DateFrom: "2026-10-29", DateTo: "2026-10-30"}},
 		{Args: evalToolArgs{DateFrom: "2026-10-30", DateTo: "2026-10-30"}},

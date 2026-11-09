@@ -9,9 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 
 	"github.com/RandomLemon/kei-plugin-persona/internal/memory/memtest"
 	"github.com/RandomLemon/kei-plugin-persona/internal/memory/store"
@@ -50,21 +48,6 @@ func startService(t *testing.T, cfg Config, tweak func(*Service)) *Service {
 	t.Cleanup(func() { s.Stop(context.WithoutCancel(t.Context())) })
 	waitFor(t, func() bool { return s.Stats().State == StateReady }, "Service 就绪")
 	return s
-}
-
-// openDB 打开断言用的连接。
-func openDB(t *testing.T, dsn string) *gorm.DB {
-	t.Helper()
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Discard})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqlDB, err := db.DB()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
-	return db
 }
 
 func waitFor(t *testing.T, cond func() bool, what string) {
@@ -123,7 +106,7 @@ func lockMessages(t *testing.T, db *gorm.DB) (release func()) {
 func TestIngestDedupe(t *testing.T) {
 	dsn := memtest.NewDB(t)
 	s := startService(t, testConfig(t, dsn), nil)
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 
 	eventOnly := groupRecord("")
 	eventOnly.EventID = "e1"
@@ -166,7 +149,7 @@ func TestIngestDedupe(t *testing.T) {
 func TestIngestPrivateConvAndCleanText(t *testing.T) {
 	dsn := memtest.NewDB(t)
 	s := startService(t, testConfig(t, dsn), nil)
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 
 	mentions := []string{"u2"}
 	s.Enqueue(Record{
@@ -202,7 +185,7 @@ func TestIngestConversationAndDay(t *testing.T) {
 	s := startService(t, testConfig(t, dsn), func(s *Service) {
 		s.now = func() time.Time { return base }
 	})
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 
 	rec := func(msgID string, at time.Time, name string) Record {
 		r := groupRecord(msgID)
@@ -341,7 +324,7 @@ func TestIngestRetryThenDrop(t *testing.T) {
 		s.ingestWriteTimeout = writeTimeout
 		s.retryBackoff = []time.Duration{20 * time.Millisecond, 40 * time.Millisecond}
 	})
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 	release := lockMessages(t, db)
 
 	begin := time.Now()
@@ -368,7 +351,7 @@ func TestStopFlushesQueue(t *testing.T) {
 	cfg.IngestBatch = 2
 	cfg.IngestInterval = time.Hour
 	s := startService(t, cfg, nil)
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 
 	// 5 条：前 4 条凑满两批立即写，最后 1 条留在批里由 Stop 写入。
 	for i := range 5 {
@@ -390,7 +373,7 @@ func TestStopReturnsAfterFlushTimeoutWhenLocked(t *testing.T) {
 	cfg.IngestBatch = 1 // 第一条立即开始写并被锁阻塞，其余留在队列
 	flushTimeout := 300 * time.Millisecond
 	s := startService(t, cfg, func(s *Service) { s.flushTimeout = flushTimeout })
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 	lockMessages(t, db)
 
 	for i := range 3 {
@@ -420,7 +403,7 @@ func TestConcurrentEnqueueAndStop(t *testing.T) {
 	cfg.QueueSize = 1000
 	// 放宽 flush 上界：-race 下写完约 800 条，慢环境里默认 2s 可能不够。
 	s := startService(t, cfg, func(s *Service) { s.flushTimeout = 10 * time.Second })
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 
 	var accepted atomic.Int64
 	var wg sync.WaitGroup

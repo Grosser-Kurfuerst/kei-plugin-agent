@@ -130,6 +130,7 @@
 | 2026-11-08 | S6 | 完成后评审修正：延续今日滚动话题时，合并输出的标题或摘要为空则沿用旧话题而非本次切片；`memory__summary` 参数为空串时按 `{}` 处理；验收表测试位置改为实际文件（`rolling_test.go`、`summary/rolling_test.go`、根包 `memory_tools_test.go`），偏差表去掉断行空行 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.8 与 [`architecture.md`](../../architecture.md) 第 5 章，均有回归测试 |
 | 2026-11-09 | S7 | 导出只替换映射表中已知的 ID（来自 sender / mentions），正文里从未作为 sender/mention 出现的号码无法识别；正文先 `Redact` 再替换；`msg_id` / `reply_to` 不重映射。A 固定 `Asia/Shanghai` + 04:00 日界，延续按匹配话题 `topic_key` 集合求交，过粗率分母用生成话题数，分母为 0 的指标输出 N/A，多次运行按分子分母累加求比例。B 的问题集字段为 `message` / `expected` / `query` / `date_from_n` / `date_to_n` / `out_date_n`，日期占位符 `{date:N}` 渲染为 `YYYY-MM-DD`；日期正确率按期望字段（from/to）计数，窗口外召回只统计 `out_date_n` 非零的问题，冗余调用率分母为 `any` 问题，误调用分母为 `no_call` 问题，分母为 0 输出 N/A；问题集未知字段报错。合成摘要每个日期一个不同话题：-1 天在窗口内，-4～-6 天供按话题问（窗口外、但在不带日期调用的默认范围 `[今天-6, 今天]` 内），-7 / -10 / -20 / -21 天供按日期问；相对日期问法用「N 天前」而非「上周三」，避免期望日期有歧义；上海时间 04:00 前或 23:00 后开始时跳过。A、B 运行命令显式放宽 `-timeout` | §16.3.9 与 `testing.md` §11.1 已同步；不改变门槛与流程 |
 | 2026-11-09 | S7 | 导出的 `PERSONA_MEMORY_EVAL_CASE`（完整 case 名）改为 `PERSONA_MEMORY_EVAL_CODE`（会话代号），case 名由代号与 `PERSONA_MEMORY_EVAL_DATE` 拼成，日期只填一次，去掉两处日期的一致性校验；case 目录与文件格式不变 | 已同步到 [`summary-layer.md`](summary-layer.md) §16.3.9 与 `testing.md` §11.1 |
+| 2026-11-09 | S7 | B 的问题集去掉 `date_from` / `date_to` 字符串字段与 `out_date_n`，日期期望只用成对的 `date_from_n` / `date_to_n`，给出即为窗口外问题；模型空回复被跳过（`reason=empty_reply`）也视为该题结束，不再等到超时判失败。测试精简：早期运行验收改用共用宿主辅助函数，`memtest.Open` 取代各包重复的连库代码。 |
 
 ## 迭代验证记录
 

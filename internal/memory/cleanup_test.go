@@ -9,7 +9,7 @@ import (
 
 func TestScheduledCleanupAndRecovery(t *testing.T) {
 	dsn := memtest.NewDB(t)
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 	if err := store.Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestScheduledCleanupAndRecovery(t *testing.T) {
 
 func TestServiceStopCancelsRunningCleanup(t *testing.T) {
 	dsn := memtest.NewDB(t)
-	db := openDB(t, dsn)
+	db := memtest.Open(t, dsn)
 	if err := store.Migrate(t.Context(), db); err != nil {
 		t.Fatal(err)
 	}
