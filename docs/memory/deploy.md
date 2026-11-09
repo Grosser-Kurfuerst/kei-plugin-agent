@@ -1,6 +1,6 @@
 # memory/deploy.md — 部署方案
 
-本文是接真实 QQ 与记忆库的部署方案：依赖容器（SnowLuma + PostgreSQL）的搭建、开发机联调运行、正式部署（kei-deps 上编译并以 systemd 常驻）、注意事项与验收。联调宿主 `cmd/devhost` 本身（文件、环境变量覆盖规则、运行命令、VS Code 调试）见 [`../testing.md`](../testing.md) §11.5，本文不重复。
+本文是接真实 QQ 与记忆库的部署方案：依赖容器（SnowLuma + PostgreSQL）的搭建、开启记忆的配置、开发机联调运行、正式部署（kei-deps 上编译并以 systemd 常驻）、注意事项与验收。联调宿主 `cmd/devhost` 本身（文件、环境变量覆盖规则、运行命令、VS Code 调试）见 [`../testing.md`](../testing.md) §11.5，本文不重复。
 
 ## 总体结构
 
@@ -114,6 +114,17 @@ VNC 密码：启动时依次取环境变量 `VNC_PASSWD`、卷内 `config/vnc-pa
 **5. 数据库**：真实 bot 用默认 `public` schema，表结构由插件启动时自动迁移，无需手动建表。mock 用的 schema 见「注意事项」。
 
 **6. 网络**：`3001`、`5099`、`6081`、`5432` 只应内网可达。`pgvector` 镜像默认允许任意来源密码登录，用强密码，或在 PVE 防火墙里只放行开发机 IP。开发机自检：`nc -zv <DEPS_IP> 3001 && nc -zv <DEPS_IP> 5432`。
+
+## 开启记忆
+
+记忆默认关闭，开发机联调与正式部署都按下面的键开启。完整键表与校验规则见 [`../configuration.md`](../configuration.md) §10.1、§10.4，环境变量写法见 §10.3。
+
+- **必需**：`memory_database_dsn`（`KEI_PLUGINS_PERSONA_MEMORY_DATABASE_DSN`）。配上即开启采集、每日 / 滚动摘要、清理与回复前的记忆块注入；为空时整个记忆子系统不启动。
+- **建议**：`random_timezone`（`KEI_PLUGINS_PERSONA_RANDOM_TIMEZONE=Asia/Shanghai`）与 `memory_daily_at`（默认 `04:00`）共同决定摘要日的日界与每日摘要时刻。
+- **可选：显式查询工具**：`memory_tools_enabled: true`（`KEI_PLUGINS_PERSONA_MEMORY_TOOLS_ENABLED=true`）装配 `memory__summary`，要求聊天模型支持 tool calling。人格配了 `tools` 名单时只能用名单内的工具，需把 `memory__summary` 加进 `personas.<名>.tools`；没配 `tools` 的人格不用改。
+- **可选：摘要模型**：`memory_llm_base_url` 为空时沿用 `llm_base_url` / `llm_api_key` / `llm_extra_headers`，`memory_llm_model_small` 为空时用 `llm_model`，`memory_llm_model_large` 为空时用 `memory_llm_model_small`；摘要想用更便宜的模型时再单独配置。
+
+开启后按「验收」第 4 步用 `/agent memory status` 确认。
 
 ## 开发机联调运行
 
