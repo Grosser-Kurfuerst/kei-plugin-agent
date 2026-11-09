@@ -1186,7 +1186,7 @@ S7 是**持续阶段**：评测框架先实现，评测数据随真实采集逐�
 
 - 存放：评测 case 来自真实群聊，**不进仓库**（仓库公开）。case 根目录由 `PERSONA_MEMORY_EVAL_CASES_DIR` 指定，只能在仓库外或被 gitignore 忽略的位置（如 `bin/eval/`）。仓库里只提交 `internal/memory/summary/testdata/eval/RESULTS.md`，只记指标与改动摘要，不摘录聊天原文。
 - 格式：每个 case 一个目录 `<case>/`，case 名为 `<会话代号>-<YYYY-MM-DD>`，会话代号是自取的短名（如 `g1`），不用真实群号或群名。`messages.jsonl` 每行一条消息，字段取 `store.Message` 的子集：`msg_id`、`sender_id`、`sender_name`、`sender_is_bot`、`is_self`、`persona`、`text`、`reply_to`、`mentions`、`sent_at`（RFC 3339，UTC）。`sender_is_bot` 不能省：预过滤与说话人别名都依赖它，缺了会把其他机器人的消息当成群友发言；`persona` 用于提示词中机器人人格名的显示。不用 `memory.Record`：`internal/memory` 引用了 `summary`，测试再引用 `memory` 会循环引用。
-- 导出（`TestEvalExport`）：只在设置了 `PERSONA_MEMORY_EVAL_SOURCE_DSN`（源库，只读，可经 SSH 隧道连生产库）、`PERSONA_MEMORY_EVAL_CONV`（`conv_key`）、`PERSONA_MEMORY_EVAL_DATE`（摘要日）、`PERSONA_MEMORY_EVAL_CASE`（case 名）、`PERSONA_MEMORY_EVAL_ID_MAP`（映射表路径）、`PERSONA_MEMORY_EVAL_CASES_DIR` 时运行，否则 `t.Skip`。按 `local_date` 导出该会话该摘要日未撤回的消息（摘要日沿用生产的 `Asia/Shanghai` 与 04:00 日界，入库时已算好），脱敏后写入 `<CASES_DIR>/<case>/messages.jsonl`：
+- 导出（`TestEvalExport`）：只在设置了 `PERSONA_MEMORY_EVAL_SOURCE_DSN`（源库，只读，可经 SSH 隧道连生产库）、`PERSONA_MEMORY_EVAL_CONV`（`conv_key`）、`PERSONA_MEMORY_EVAL_DATE`（摘要日）、`PERSONA_MEMORY_EVAL_CODE`（会话代号，case 名由它与摘要日拼成）、`PERSONA_MEMORY_EVAL_ID_MAP`（映射表路径）、`PERSONA_MEMORY_EVAL_CASES_DIR` 时运行，否则 `t.Skip`。按 `local_date` 导出该会话该摘要日未撤回的消息（摘要日沿用生产的 `Asia/Shanghai` 与 04:00 日界，入库时已算好），脱敏后写入 `<CASES_DIR>/<case>/messages.jsonl`：
   - 用户 ID 映射为 `u1`、`u2`……，`sender_id`、`mentions` 与正文中出现的 ID 一并替换；`sender_name` 替换为映射后的编号；正文先经 `Redact`。
   - 映射表是 JSON 文件，按会话记录「真实 ID → 编号」。同一会话的所有 case 共用并追加同一份映射，同一个人在每天的 case 里编号一致，跨天的说话人归属与延续才可核对。映射表含真实 ID，只能放在仓库外或被 gitignore 忽略的位置（如 `bin/`），不得提交。
   - case 不进仓库，脱敏是为了让标注、评测报告与 `RESULTS.md` 不出现真实 ID 与昵称，不再要求逐条人工清理正文。

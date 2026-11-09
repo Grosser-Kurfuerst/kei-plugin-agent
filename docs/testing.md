@@ -66,14 +66,14 @@ PERSONA_MEMORY_SUMMARY_HOST_BINARY=/tmp/persona-memory-devhost go test ./interna
 
 S7 评测：case 与映射表含真实数据，只能放在仓库外或被忽略的目录（如 `bin/eval/`），不得提交；真实数据相关只提交指标记录 `internal/memory/summary/testdata/eval/RESULTS.md`（B 的合成问题集随代码提交）。评测测试只在对应环境变量齐全时运行，否则 `t.Skip`；真实 LLM 评测耗时长，命令显式放宽 `-timeout`（`go test` 默认 10 分钟）。
 
-导出（源库只读；case 名为 `<会话代号>-<YYYY-MM-DD>`）：
+导出（源库只读；case 名由会话代号与日期拼成 `<会话代号>-<YYYY-MM-DD>`）：
 
 ```bash
 mkdir -p bin/eval
 export PERSONA_MEMORY_EVAL_CASES_DIR="$PWD/bin/eval/cases"
 export PERSONA_MEMORY_EVAL_ID_MAP="$PWD/bin/eval/id_map.json"
 PERSONA_MEMORY_EVAL_SOURCE_DSN='postgres://...' PERSONA_MEMORY_EVAL_CONV='group:onebot:...' \
-PERSONA_MEMORY_EVAL_DATE=2026-11-07 PERSONA_MEMORY_EVAL_CASE=g1-2026-11-07 \
+PERSONA_MEMORY_EVAL_DATE=2026-11-07 PERSONA_MEMORY_EVAL_CODE=g1 \
 go test ./internal/memory/summary -run TestEvalExport -v -count=1
 ```
 

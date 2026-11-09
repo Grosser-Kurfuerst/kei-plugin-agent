@@ -24,7 +24,7 @@ const (
 	evalSourceDSNEnv = "PERSONA_MEMORY_EVAL_SOURCE_DSN"
 	evalConvEnv      = "PERSONA_MEMORY_EVAL_CONV"
 	evalDateEnv      = "PERSONA_MEMORY_EVAL_DATE"
-	evalCaseEnv      = "PERSONA_MEMORY_EVAL_CASE"
+	evalCodeEnv      = "PERSONA_MEMORY_EVAL_CODE"
 	evalIDMapEnv     = "PERSONA_MEMORY_EVAL_ID_MAP"
 	evalCasesDirEnv  = "PERSONA_MEMORY_EVAL_CASES_DIR"
 )
@@ -52,29 +52,26 @@ func assertEvalPrivatePath(t *testing.T, key, path string) {
 	}
 }
 
-// validateEvalCaseName 要求 <会话代号>-<YYYY-MM-DD>，且不把路径分隔符带进 Join。
-func validateEvalCaseName(t *testing.T, name, date string) {
+// validateEvalCode 要求会话代号非空，且不把路径分隔符带进 Join。
+func validateEvalCode(t *testing.T, code string) {
 	t.Helper()
-	if len(name) < 12 || name[len(name)-11] != '-' || name[len(name)-10:] != date {
-		t.Fatalf("%s 应为 <会话代号>-%s: %s", evalCaseEnv, date, name)
-	}
-	conv := name[:len(name)-11]
-	if conv == "" || conv == "." || conv == ".." || strings.ContainsAny(conv, `/\`) {
-		t.Fatalf("%s 的会话代号不合法: %s", evalCaseEnv, name)
+	if code == "." || code == ".." || strings.ContainsAny(code, `/\`) {
+		t.Fatalf("%s 的会话代号不合法: %s", evalCodeEnv, code)
 	}
 }
 
 // TestEvalExport 从只读源库导出一个会话日，按会话映射匿名化后写入 case 目录。
 func TestEvalExport(t *testing.T) {
-	env := evalEnv(t, evalSourceDSNEnv, evalConvEnv, evalDateEnv, evalCaseEnv, evalIDMapEnv, evalCasesDirEnv)
+	env := evalEnv(t, evalSourceDSNEnv, evalConvEnv, evalDateEnv, evalCodeEnv, evalIDMapEnv, evalCasesDirEnv)
 	assertEvalPrivatePath(t, evalCasesDirEnv, env[evalCasesDirEnv])
 	assertEvalPrivatePath(t, evalIDMapEnv, env[evalIDMapEnv])
 	date, err := time.Parse("2006-01-02", env[evalDateEnv])
 	if err != nil {
 		t.Fatalf("%s 应为 YYYY-MM-DD: %v", evalDateEnv, err)
 	}
-	validateEvalCaseName(t, env[evalCaseEnv], env[evalDateEnv])
-	messagesPath := filepath.Join(env[evalCasesDirEnv], env[evalCaseEnv], "messages.jsonl")
+	validateEvalCode(t, env[evalCodeEnv])
+	// case 名为 <会话代号>-<YYYY-MM-DD>，日期取自 DATE，只填一次。
+	messagesPath := filepath.Join(env[evalCasesDirEnv], env[evalCodeEnv]+"-"+date.Format("2006-01-02"), "messages.jsonl")
 	assertEvalPrivatePath(t, evalCasesDirEnv, messagesPath)
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
